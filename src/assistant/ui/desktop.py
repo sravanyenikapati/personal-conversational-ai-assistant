@@ -220,8 +220,13 @@ class ChatApp(tk.Tk):
         self._process_user_input(text)
 
     def _toggle_mic(self) -> None:
-        """Start recording; when done, process the transcription."""
-        if self._is_recording or self._is_thinking:
+        """Start recording; stop TTS first if it is currently speaking."""
+        # If already recording, ignore second press
+        if self._is_recording:
+            return
+        # Stop any ongoing TTS speech before recording
+        self._tts.stop()
+        if self._is_thinking:
             return
 
         self._is_recording = True

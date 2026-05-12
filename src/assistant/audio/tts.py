@@ -1,15 +1,15 @@
 """
 Text-to-Speech (TTS) module.
 
-Uses Microsoft Edge TTS via the `edge-tts` package.
-  - Free, no API key required
-  - 300+ high-quality neural voices (Aria, Guy, Sonia, etc.)
-  - Streams audio directly without saving to disk
+Uses Microsoft Edge TTS for synthesis (free, no API key, 300+ neural voices).
+Decodes MP3 output via soundfile (bundled libsndfile 1.2+ has MP3 support).
+Plays audio directly through speakers via sounddevice.
+
+No media player popup. No extra packages. Works on Python 3.14+.
 
 Usage:
     tts = TextToSpeech()
-    tts.speak("Hello, how can I help you?")   # blocking
-    await tts.speak_async("Hello!")            # async
+    tts.speak("Hello, how can I help you?")   # non-blocking
 """
 
 from __future__ import annotations
@@ -18,121 +18,125 @@ import asyncio
 import io
 import threading
 
-import edge_tts
+import sounddevice as sd
+import soundfile as sf
 
 from assistant.config import get_settings
 from assistant.logger import get_logger
 
 log = get_logger(__name__)
 
-# Sentinel used to signal the playback thread to stop
-_STOP_SIGNAL = b""
-
 
 class TextToSpeech:
     """
-    Converts text to speech using Edge TTS.
+    Converts text to speech and plays it through the system speakers.
 
-    speak() is thread-safe and can be called from Tkinter's main thread
-    without freezing the UI (playback runs in a background thread).
+    speak() is non-blocking — plays in a background thread so the UI
+    stays responsive while the assistant is talking.
     """
 
     def __init__(self) -> None:
         self._voice = get_settings().tts_voice
         self._playback_thread: threading.Thread | None = None
+        self._stop_flag = threading.Event()
         log.info(f"TTS ready. Voice: [bold]{self._voice}[/bold]")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def speak(self, text: str) -> None:
-        """
-        Speak text in a background thread (non-blocking).
-
-        Stops any currently playing speech before starting new.
-        """
+        """Speak text through the speakers (non-blocking)."""
         if not text.strip():
             return
 
-        self.stop()  # cancel any in-progress speech
+        self.stop()
+        self._stop_flag.clear()
 
         self._playback_thread = threading.Thread(
-            target=self._play_in_thread,
+            target=self._run,
             args=(text,),
             daemon=True,
             name="tts-playback",
         )
         self._playback_thread.start()
 
-    def speak_blocking(self, text: str) -> None:
-        """Speak and block the calling thread until done (use in CLI mode)."""
-        if not text.strip():
-            return
-        asyncio.run(self._synthesise_and_play(text))
-
     def stop(self) -> None:
-        """Interrupt any currently playing speech."""
+        """Stop any currently playing speech immediately."""
+        self._stop_flag.set()
+        sd.stop()
         if self._playback_thread and self._playback_thread.is_alive():
-            # Edge-tts playback daemon threads die when the process stops,
-            # but we can't interrupt mid-stream cleanly. We mark the old thread
-            # as detached and start a fresh one next time speak() is called.
-            log.debug("Stopping previous TTS playback.")
-            self._playback_thread = None
+            self._playback_thread.join(timeout=2.0)
 
-    # ── Internal ─────────────────────────────────────────────────────────────
+    # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _play_in_thread(self, text: str) -> None:
-        """Entry point for the background playback thread."""
+    def _run(self, text: str) -> None:
+        """Thread entry point."""
         try:
             asyncio.run(self._synthesise_and_play(text))
         except Exception as exc:
-            log.error(f"TTS playback error: {exc}", exc_info=True)
+            log.error(f"TTS error: {exc}", exc_info=True)
 
     async def _synthesise_and_play(self, text: str) -> None:
-        """Synthesise speech and play it through the system's default audio output."""
-        try:
-            import pygame  # noqa: PLC0415
-        except ImportError:
-            # Fallback: save to temp file and open with system player
-            await self._play_via_tempfile(text)
+        """Synthesise MP3 via Edge TTS → decode with soundfile → play via sounddevice."""
+        mp3_bytes = await self._synthesise_mp3(text)
+
+        if not mp3_bytes or self._stop_flag.is_set():
             return
 
-        audio_data = await self._synthesise(text)
-        buf = io.BytesIO(audio_data)
+        # Decode MP3 → float32 PCM array
+        # soundfile 0.12+ bundles libsndfile 1.1+ which natively decodes MP3
+        buf = io.BytesIO(mp3_bytes)
+        try:
+            audio_data, sample_rate = sf.read(buf, dtype="float32")
+        except Exception as exc:
+            log.error(f"Failed to decode TTS audio: {exc}", exc_info=True)
+            return
 
-        pygame.mixer.init()
-        pygame.mixer.music.load(buf)
-        pygame.mixer.music.play()
+        if self._stop_flag.is_set():
+            return
 
-        while pygame.mixer.music.get_busy():
+        log.debug(
+            f"Playing {len(audio_data) / sample_rate:.1f}s of audio "
+            f"@ {sample_rate} Hz..."
+        )
+
+        # Play through default speakers
+        sd.play(audio_data, samplerate=sample_rate)
+
+        # Wait for playback, honouring stop requests every 50ms
+        while sd.get_stream().active:
+            if self._stop_flag.is_set():
+                sd.stop()
+                return
             await asyncio.sleep(0.05)
 
-        pygame.mixer.music.stop()
-        pygame.mixer.quit()
+        sd.wait()
+        log.debug("Playback complete.")
 
-    async def _synthesise(self, text: str) -> bytes:
-        """Use edge-tts to generate speech audio bytes (MP3)."""
-        log.debug(f"Synthesising speech for: {text[:60]!r}...")
-        communicate = edge_tts.Communicate(text=text, voice=self._voice)
+    async def _synthesise_mp3(self, text: str) -> bytes:
+        """Fetch MP3 audio bytes from Microsoft Edge TTS."""
+        import edge_tts  # noqa: PLC0415
+
+        # Strip non-ASCII characters — English TTS voice cannot speak other scripts
+        clean_text = text.encode("ascii", errors="ignore").decode("ascii").strip()
+        if not clean_text:
+            log.warning("TTS skipped — text contained no speakable ASCII characters.")
+            return b""
+
+        log.debug(f"Synthesising: {clean_text[:60]!r}...")
+        communicate = edge_tts.Communicate(text=clean_text, voice=self._voice)
+
         chunks: list[bytes] = []
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                chunks.append(chunk["data"])
-        audio_bytes = b"".join(chunks)
-        log.debug(f"Synthesised {len(audio_bytes):,} bytes of audio.")
-        return audio_bytes
+        try:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+        except edge_tts.exceptions.NoAudioReceived:
+            log.warning("TTS: No audio received from Edge TTS — skipping playback.")
+            return b""
 
-    async def _play_via_tempfile(self, text: str) -> None:
-        """Fallback: write MP3 to a temp file and open with the OS default player."""
-        import os          # noqa: PLC0415
-        import tempfile    # noqa: PLC0415
-
-        audio_bytes = await self._synthesise(text)
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-
-        log.debug(f"Playing via OS: {tmp_path}")
-        os.startfile(tmp_path)  # Windows; on macOS/Linux use subprocess + open/xdg-open
+        mp3_bytes = b"".join(chunks)
+        log.debug(f"Received {len(mp3_bytes):,} bytes from Edge TTS.")
+        return mp3_bytes
 
 
 async def list_available_voices(language_filter: str = "en") -> list[str]:
@@ -140,7 +144,9 @@ async def list_available_voices(language_filter: str = "en") -> list[str]:
     Utility: list all Edge TTS voices matching a language prefix.
 
     Example:
-        voices = await list_available_voices("en-US")
+        import asyncio
+        voices = asyncio.run(list_available_voices("en-US"))
     """
+    import edge_tts  # noqa: PLC0415
     voices = await edge_tts.list_voices()
     return [v["ShortName"] for v in voices if v["ShortName"].startswith(language_filter)]
