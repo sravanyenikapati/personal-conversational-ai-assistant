@@ -1,0 +1,20 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Development-Only Dependencies
+# Install: pip install -r requirements-dev.txt
+# ──────────────────────────────────────────────────────────────────────────────
+
+-r requirements.txt          # Include all runtime deps
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+pytest>=8.2.0
+pytest-asyncio>=0.23.0       # async test support
+pytest-mock>=3.14.0          # mocking
+pytest-cov>=5.0.0            # coverage reports
+respx>=0.21.0                # mock httpx (for OpenAI/Anthropic HTTP calls)
+
+# ── Linting & Formatting ───────────────────────────────────────────────────────
+ruff>=0.4.0                  # linter + formatter (replaces flake8 + black + isort)
+mypy>=1.10.0                 # static type checking
+
+# ── Type Stubs ─────────────────────────────────────────────────────────────────
+types-requests>=2.32.0
