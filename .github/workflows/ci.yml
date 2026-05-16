@@ -26,6 +26,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Install system audio libraries
+        run: sudo apt-get install -y libportaudio2 portaudio19-dev libsndfile1
+
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
