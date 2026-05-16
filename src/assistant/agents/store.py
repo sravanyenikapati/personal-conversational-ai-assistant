@@ -1,27 +1,20 @@
 """
-Conversation Store — isolated conversation memory per session and agent.
+Conversation Store -- isolated conversation memory per session and agent.
 
 Key design:
   - Each (session_id, agent_id) pair gets its own ConversationHistory.
-  - A shared AI provider is injected at construction — one HTTP client for all conversations.
+  - A shared AI provider is injected at construction -- one HTTP client for all.
   - Thread-safe: the FastAPI server handles concurrent requests.
 
-Usage:
-    provider = _build_provider()
-    store = ConversationStore(provider=provider)
-
-    reply, count = store.chat(
-        session_id="abc-123",
-        agent_id="health",
-        system_prompt="...",
-        message="What are some good stretches for back pain?",
-    )
-    store.clear(session_id="abc-123", agent_id="health")
+Two chat modes:
+  chat()        -- blocking, returns (reply, count). Used by POST /chat.
+  stream_chat() -- streaming, yields text tokens. Used by POST /chat/stream.
 """
 
 from __future__ import annotations
 
 import threading
+from typing import Iterator
 
 from assistant.config import get_settings
 from assistant.core.brain import AIProviderProtocol
@@ -35,9 +28,7 @@ class ConversationStore:
     """
     Manages isolated ConversationHistory objects, keyed by (session_id, agent_id).
 
-    Switching from one agent to another within the same session does NOT share
-    conversation context — each agent remembers only its own exchanges.
-
+    Switching agents within the same session does NOT share context.
     A single AI provider is shared across all conversations for efficiency.
     """
 
@@ -49,7 +40,7 @@ class ConversationStore:
         self._max_messages = settings.max_conversation_history
         log.info("ConversationStore initialised.")
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # -- Public API ------------------------------------------------------------
 
     def chat(
         self,
@@ -60,36 +51,22 @@ class ConversationStore:
         message: str,
     ) -> tuple[str, int]:
         """
-        Send a user message to a specific agent within a session.
+        Send a user message to a specific agent within a session (blocking).
 
-        Creates the conversation history for this (session_id, agent_id) pair
-        on first use. Returns (reply, message_count).
-
-        Args:
-            session_id:    Client-supplied session identifier (e.g. UUID).
-            agent_id:      Which agent to talk to (e.g. "health").
-            system_prompt: The agent's system prompt — defines its personality.
-            message:       The user's message.
-
-        Returns:
-            (reply_string, total_message_count_in_this_conversation)
+        Returns (reply_string, total_message_count).
         """
         if not message.strip():
             return "", 0
 
         history = self._get_or_create(session_id, agent_id, system_prompt)
-
         history.add_user_message(message)
 
         try:
             reply = self._provider.complete(history.get_messages())
         except Exception as exc:
             log.error(f"Provider error [{agent_id}]: {exc}", exc_info=True)
-            # Remove the user message we just added so history stays consistent
             history._messages.pop()
-            reply = (
-                "Sorry, I ran into an issue generating a response. Please try again."
-            )
+            reply = "Sorry, I ran into an issue generating a response. Please try again."
 
         history.add_assistant_message(reply)
         log.info(
@@ -97,6 +74,43 @@ class ConversationStore:
             f"history={len(history)} messages"
         )
         return reply, len(history)
+
+    def stream_chat(
+        self,
+        *,
+        session_id: str,
+        agent_id: str,
+        system_prompt: str,
+        message: str,
+    ) -> Iterator[str]:
+        """
+        Stream the AI reply as text tokens (low-latency SSE endpoint).
+
+        Yields text chunks as they arrive from the provider.
+        Stores the full reply in conversation history once streaming completes.
+        """
+        if not message.strip():
+            return
+
+        history = self._get_or_create(session_id, agent_id, system_prompt)
+        history.add_user_message(message)
+
+        full_reply = ""
+        try:
+            for chunk in self._provider.stream_complete(history.get_messages()):
+                full_reply += chunk
+                yield chunk
+        except Exception as exc:
+            log.error(f"Stream provider error [{agent_id}]: {exc}", exc_info=True)
+            history._messages.pop()
+            yield "Sorry, I ran into an issue generating a response. Please try again."
+            return
+
+        history.add_assistant_message(full_reply)
+        log.info(
+            f"[session={session_id[:8]}] [{agent_id}] stream complete -- "
+            f"history={len(history)} messages"
+        )
 
     def clear(self, *, session_id: str, agent_id: str) -> None:
         """Clear the conversation history for one agent in a session."""
@@ -128,7 +142,7 @@ class ConversationStore:
         with self._lock:
             return len(self._store)
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # -- Internal --------------------------------------------------------------
 
     def _get_or_create(
         self,

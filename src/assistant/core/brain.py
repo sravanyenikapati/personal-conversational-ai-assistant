@@ -1,63 +1,71 @@
 """
-AI Brain — provider-agnostic abstraction layer.
+AI Brain -- provider-agnostic abstraction layer.
 
 Architecture:
-    AIProviderProtocol              ← abstract interface (typing.Protocol)
-    ├── OpenAIProvider              ← active (Phase 1 default)
-    └── AnthropicProvider           ← active (Phase 2, set AI_PROVIDER=anthropic in .env)
+    AIProviderProtocol              <- abstract interface (typing.Protocol)
+    OpenAIProvider                  <- active (Phase 1 default)
+    AnthropicProvider               <- active (Phase 2, set AI_PROVIDER=anthropic in .env)
 
-    Brain                           ← single entry point used by UI, API, and ConversationStore
-        brain.chat(user_message)    ← returns assistant reply string
+    Brain                           <- single entry point used by UI, API, and ConversationStore
+        brain.chat(user_message)    <- returns full assistant reply (blocking)
+        brain.stream_chat(msg)      <- yields sentences as they arrive (low-latency voice)
 
-Phase 2 additions:
-    - Brain accepts an optional `system_prompt` override (for per-agent prompts).
-    - Brain accepts an optional `provider` injection (so ConversationStore can share
-      one HTTP client across all agent conversations — efficient and clean).
+Phase 2.5 additions (streaming):
+    - Both providers implement stream_complete() for token-by-token streaming.
+    - Brain.stream_chat() yields complete sentences via SentenceSplitter so TTS
+      can start speaking after the first sentence (~0.5s) instead of waiting for
+      the full response (3-8s). This is how ChatGPT Voice works.
 
 Swapping providers still requires only changing AI_PROVIDER in .env.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Iterator, Protocol, runtime_checkable
 
 from openai import OpenAI
 
 from assistant.config import AIProvider, get_settings
 from assistant.core.conversation import ConversationHistory
+from assistant.core.streaming import SentenceSplitter
 from assistant.logger import get_logger
 
 log = get_logger(__name__)
 
 
-# ── Provider Protocol ──────────────────────────────────────────────────────────
+# -- Provider Protocol ---------------------------------------------------------
 
 @runtime_checkable
 class AIProviderProtocol(Protocol):
     """
     Interface every AI provider must satisfy.
-    Any class with a `complete` method matching this signature is a valid provider.
+
+    complete()        -- blocking, returns full reply (used by REST API)
+    stream_complete() -- streaming, yields text tokens (used by voice pipeline)
     """
 
     def complete(self, messages: list[dict[str, str]]) -> str:
         """Send a message list and return the assistant's reply as a string."""
         ...
 
+    def stream_complete(self, messages: list[dict[str, str]]) -> Iterator[str]:
+        """Stream the assistant's reply as text tokens (chunks)."""
+        ...
 
-# ── OpenAI Provider ────────────────────────────────────────────────────────────
+
+# -- OpenAI Provider -----------------------------------------------------------
 
 class OpenAIProvider:
     """Calls the OpenAI Chat Completions API."""
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._client = OpenAI(
-            api_key=settings.openai_api_key.get_secret_value()
-        )
+        self._client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
         self._model = settings.openai_model
         log.info(f"OpenAI provider ready. Model: [bold]{self._model}[/bold]")
 
     def complete(self, messages: list[dict[str, str]]) -> str:
+        """Blocking call -- waits for the full response."""
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,  # type: ignore[arg-type]
@@ -71,15 +79,33 @@ class OpenAIProvider:
         )
         return content.strip()
 
+    def stream_complete(self, messages: list[dict[str, str]]) -> Iterator[str]:
+        """
+        Stream text tokens from OpenAI as they are generated.
 
-# ── Anthropic (Claude) Provider ────────────────────────────────────────────────
+        First token arrives in ~300ms instead of waiting for full response (~2-5s).
+        """
+        stream = self._client.chat.completions.create(
+            model=self._model,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=0.7,
+            max_tokens=1024,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+
+# -- Anthropic (Claude) Provider -----------------------------------------------
 
 class AnthropicProvider:
     """
     Calls the Anthropic Claude API.
 
-    Active in Phase 2. Set AI_PROVIDER=anthropic in your .env to use Claude.
-    Requires ANTHROPIC_API_KEY to be set.
+    Active when AI_PROVIDER=anthropic in .env.
+    Recommended fast model: claude-3-5-haiku-20251001
     """
 
     def __init__(self) -> None:
@@ -98,16 +124,8 @@ class AnthropicProvider:
         log.info(f"Anthropic (Claude) provider ready. Model: [bold]{self._model}[/bold]")
 
     def complete(self, messages: list[dict[str, str]]) -> str:
-        # Anthropic separates the system prompt from the messages list
-        system_msg = ""
-        chat_messages = []
-
-        for msg in messages:
-            if msg["role"] == "system":
-                system_msg = msg["content"]
-            else:
-                chat_messages.append(msg)
-
+        """Blocking call -- waits for the full response."""
+        system_msg, chat_messages = self._split_messages(messages)
         response = self._client.messages.create(
             model=self._model,
             system=system_msg,
@@ -118,8 +136,37 @@ class AnthropicProvider:
         log.debug(f"Anthropic response received. Stop reason: {response.stop_reason}")
         return content.strip()
 
+    def stream_complete(self, messages: list[dict[str, str]]) -> Iterator[str]:
+        """
+        Stream text tokens from Anthropic Claude as they are generated.
+        Sub-second time-to-first-token.
+        """
+        system_msg, chat_messages = self._split_messages(messages)
+        with self._client.messages.stream(
+            model=self._model,
+            system=system_msg,
+            messages=chat_messages,  # type: ignore[arg-type]
+            max_tokens=1024,
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
 
-# ── Provider Factory ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _split_messages(
+        messages: list[dict[str, str]],
+    ) -> tuple[str, list[dict[str, str]]]:
+        """Separate the system message from the chat messages (Anthropic API format)."""
+        system_msg = ""
+        chat_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_msg = msg["content"]
+            else:
+                chat_messages.append(msg)
+        return system_msg, chat_messages
+
+
+# -- Provider Factory ----------------------------------------------------------
 
 def _build_provider() -> AIProviderProtocol:
     """Instantiate the correct provider based on the AI_PROVIDER setting."""
@@ -132,32 +179,27 @@ def _build_provider() -> AIProviderProtocol:
         raise ValueError(f"Unknown AI provider: {settings.ai_provider}")
 
 
-# ── Brain ──────────────────────────────────────────────────────────────────────
+# -- Brain ---------------------------------------------------------------------
 
 class Brain:
     """
     The central AI controller.
 
     Owns a ConversationHistory and delegates completions to an AI provider.
-    This is the entry point used by the desktop UI and CLI.
-
-    For the multi-agent API (Phase 2), the ConversationStore manages Brain-like
-    conversation logic directly — sharing one provider across all agent conversations.
+    Used by the desktop UI, CLI, and ConversationStore.
 
     Args:
         system_prompt: Override the default system prompt from settings.
-                       Used by the desktop UI when switching agents.
-        provider:      Inject a pre-built provider. If omitted, one is built from
-                       settings. Injection allows sharing a single HTTP client.
+        provider:      Inject a pre-built provider (share one HTTP client).
 
-    Usage (single-agent, desktop UI):
+    Usage -- blocking (REST API):
         brain = Brain()
-        reply = brain.chat("What's the weather on Mars?")
+        reply = brain.chat("What is the capital of France?")
 
-    Usage (per-agent, with shared provider):
-        provider = _build_provider()
-        health_brain = Brain(system_prompt=AGENTS["health"].system_prompt, provider=provider)
-        finance_brain = Brain(system_prompt=AGENTS["finance"].system_prompt, provider=provider)
+    Usage -- streaming (voice pipeline):
+        brain = Brain()
+        for sentence in brain.stream_chat("Tell me about Mars."):
+            tts.speak(sentence)   # plays while AI generates next sentence
     """
 
     def __init__(
@@ -168,7 +210,6 @@ class Brain:
         settings = get_settings()
 
         if provider is not None:
-            # Injected — skip validation (caller is responsible)
             self._provider = provider
         else:
             settings.validate_provider()
@@ -182,15 +223,10 @@ class Brain:
 
     def chat(self, user_message: str) -> str:
         """
-        Process a user message and return the assistant's reply.
+        Process a user message and return the full assistant reply.
 
-        Automatically manages conversation history (rolling window).
-
-        Args:
-            user_message: The user's input (from text or voice).
-
-        Returns:
-            The assistant's reply as a plain string.
+        Blocks until the complete response is received. Use stream_chat()
+        for voice interactions where low latency matters.
         """
         if not user_message.strip():
             return ""
@@ -201,11 +237,52 @@ class Brain:
             reply = self._provider.complete(self._history.get_messages())
         except Exception as exc:
             log.error(f"AI provider error: {exc}", exc_info=True)
-            self._history._messages.pop()  # remove the user message to keep history clean
+            self._history._messages.pop()
             reply = "Sorry, I ran into an issue generating a response. Please try again."
 
         self._history.add_assistant_message(reply)
         return reply
+
+    def stream_chat(self, user_message: str) -> Iterator[str]:
+        """
+        Process a user message and stream back complete sentences.
+
+        Uses the provider's streaming API and SentenceSplitter to yield one
+        complete sentence at a time. The first sentence is available after
+        ~300-500ms regardless of how long the full response takes.
+
+        Args:
+            user_message: The user's input.
+
+        Yields:
+            Complete sentences as strings, in order, as they become available.
+        """
+        if not user_message.strip():
+            return
+
+        self._history.add_user_message(user_message)
+        full_reply = ""
+        splitter = SentenceSplitter()
+
+        try:
+            for chunk in self._provider.stream_complete(self._history.get_messages()):
+                full_reply += chunk
+                for sentence in splitter.feed(chunk):
+                    log.debug(f"Streaming sentence: {sentence[:50]!r}...")
+                    yield sentence
+
+            remainder = splitter.flush()
+            if remainder:
+                yield remainder
+
+        except Exception as exc:
+            log.error(f"AI streaming error: {exc}", exc_info=True)
+            self._history._messages.pop()
+            yield "Sorry, I ran into an issue generating a response. Please try again."
+            return
+
+        self._history.add_assistant_message(full_reply)
+        log.info(f"Streaming complete. {len(full_reply)} chars.")
 
     def reset(self) -> None:
         """Clear the conversation history and start fresh."""
