@@ -16,11 +16,10 @@ import pytest
 
 from assistant.core.streaming import SentenceSplitter
 
-
 # ── SentenceSplitter Tests ────────────────────────────────────────────────────
 
-class TestSentenceSplitter:
 
+class TestSentenceSplitter:
     def test_single_sentence_returned_on_period(self):
         s = SentenceSplitter()
         result = s.feed("Hello there. ")
@@ -83,8 +82,8 @@ class TestSentenceSplitter:
 
 # ── Brain.stream_chat Tests ───────────────────────────────────────────────────
 
-class TestBrainStreamChat:
 
+class TestBrainStreamChat:
     def _mock_provider(self, chunks):
         provider = MagicMock()
         provider.complete.return_value = "".join(chunks)
@@ -93,9 +92,8 @@ class TestBrainStreamChat:
 
     def test_stream_chat_yields_sentences(self):
         from assistant.core.brain import Brain
-        provider = self._mock_provider(
-            ["Hello there. ", "How can I help you today? "]
-        )
+
+        provider = self._mock_provider(["Hello there. ", "How can I help you today? "])
         brain = Brain(system_prompt="You are helpful.", provider=provider)
         sentences = list(brain.stream_chat("Hi"))
         assert len(sentences) >= 1
@@ -104,6 +102,7 @@ class TestBrainStreamChat:
 
     def test_stream_chat_empty_input_yields_nothing(self):
         from assistant.core.brain import Brain
+
         provider = self._mock_provider([])
         brain = Brain(system_prompt="You are helpful.", provider=provider)
         result = list(brain.stream_chat("   "))
@@ -112,6 +111,7 @@ class TestBrainStreamChat:
 
     def test_stream_chat_stores_full_reply_in_history(self):
         from assistant.core.brain import Brain
+
         provider = self._mock_provider(["Hello. ", "I am here. "])
         brain = Brain(system_prompt="You are helpful.", provider=provider)
         list(brain.stream_chat("Hi"))
@@ -122,6 +122,7 @@ class TestBrainStreamChat:
 
     def test_stream_chat_error_yields_friendly_message(self):
         from assistant.core.brain import Brain
+
         provider = MagicMock()
         provider.stream_complete.side_effect = Exception("Network error")
         brain = Brain(system_prompt="You are helpful.", provider=provider)
@@ -131,6 +132,7 @@ class TestBrainStreamChat:
 
     def test_stream_chat_error_removes_user_message_from_history(self):
         from assistant.core.brain import Brain
+
         provider = MagicMock()
         provider.stream_complete.side_effect = Exception("Timeout")
         brain = Brain(system_prompt="You are helpful.", provider=provider)
@@ -142,8 +144,8 @@ class TestBrainStreamChat:
 
 # ── ConversationStore.stream_chat Tests ──────────────────────────────────────
 
-class TestConversationStoreStreamChat:
 
+class TestConversationStoreStreamChat:
     def _mock_provider(self, chunks):
         provider = MagicMock()
         provider.complete.return_value = "".join(chunks)
@@ -152,60 +154,82 @@ class TestConversationStoreStreamChat:
 
     def test_stream_chat_yields_tokens(self):
         from assistant.agents.store import ConversationStore
+
         provider = self._mock_provider(["Hello ", "world."])
         store = ConversationStore(provider=provider)
-        tokens = list(store.stream_chat(
-            session_id="s1", agent_id="general",
-            system_prompt="Prompt.", message="Hi",
-        ))
+        tokens = list(
+            store.stream_chat(
+                session_id="s1",
+                agent_id="general",
+                system_prompt="Prompt.",
+                message="Hi",
+            )
+        )
         assert tokens == ["Hello ", "world."]
 
     def test_stream_chat_empty_message_yields_nothing(self):
         from assistant.agents.store import ConversationStore
+
         provider = self._mock_provider([])
         store = ConversationStore(provider=provider)
-        tokens = list(store.stream_chat(
-            session_id="s1", agent_id="general",
-            system_prompt="Prompt.", message="   ",
-        ))
+        tokens = list(
+            store.stream_chat(
+                session_id="s1",
+                agent_id="general",
+                system_prompt="Prompt.",
+                message="   ",
+            )
+        )
         assert tokens == []
         provider.stream_complete.assert_not_called()
 
     def test_stream_chat_stores_full_reply(self):
         from assistant.agents.store import ConversationStore
+
         provider = self._mock_provider(["Hello ", "there."])
         store = ConversationStore(provider=provider)
-        list(store.stream_chat(
-            session_id="s1", agent_id="general",
-            system_prompt="Prompt.", message="Hi",
-        ))
+        list(
+            store.stream_chat(
+                session_id="s1",
+                agent_id="general",
+                system_prompt="Prompt.",
+                message="Hi",
+            )
+        )
         assert store.message_count(session_id="s1", agent_id="general") == 2
 
     def test_stream_chat_agents_isolated(self):
         from assistant.agents.store import ConversationStore
+
         provider = self._mock_provider(["Reply."])
         store = ConversationStore(provider=provider)
-        list(store.stream_chat(
-            session_id="s1", agent_id="general",
-            system_prompt="Prompt.", message="Hi",
-        ))
+        list(
+            store.stream_chat(
+                session_id="s1",
+                agent_id="general",
+                system_prompt="Prompt.",
+                message="Hi",
+            )
+        )
         assert store.message_count(session_id="s1", agent_id="health") == 0
 
 
 # ── POST /chat/stream SSE Endpoint Tests ──────────────────────────────────────
 
+
 @pytest.fixture
 def api_client():
+    from fastapi.testclient import TestClient
+
     import assistant.api.server as srv
-    from fastapi.testclient import TestClient as TC
+
     mock_store = MagicMock()
     mock_store.session_count.return_value = 0
     with patch("assistant.api.server._store", mock_store):
-        yield TC(srv.app), mock_store
+        yield TestClient(srv.app), mock_store
 
 
 class TestChatStreamEndpoint:
-
     def test_stream_returns_200(self, api_client):
         tc, mock_store = api_client
         mock_store.stream_chat.return_value = iter(["Hello ", "there."])
@@ -224,7 +248,6 @@ class TestChatStreamEndpoint:
         assert resp.status_code == 400
 
     def test_stream_response_contains_session_event(self, api_client):
-        import json as _json
         tc, mock_store = api_client
         mock_store.stream_chat.return_value = iter(["Hi."])
         resp = tc.post("/chat/stream", json={"message": "Hello", "agent_id": "general"})
@@ -261,6 +284,7 @@ class TestChatStreamEndpoint:
 
 def _parse_sse(body):
     import json as _json
+
     events = []
     for line in body.splitlines():
         if line.startswith("data: "):

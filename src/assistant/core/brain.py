@@ -21,7 +21,8 @@ Swapping providers still requires only changing AI_PROVIDER in .env.
 
 from __future__ import annotations
 
-from typing import Iterator, Protocol, runtime_checkable
+from collections.abc import Iterator
+from typing import Protocol, runtime_checkable
 
 from openai import OpenAI
 
@@ -34,6 +35,7 @@ log = get_logger(__name__)
 
 
 # -- Provider Protocol ---------------------------------------------------------
+
 
 @runtime_checkable
 class AIProviderProtocol(Protocol):
@@ -54,6 +56,7 @@ class AIProviderProtocol(Protocol):
 
 
 # -- OpenAI Provider -----------------------------------------------------------
+
 
 class OpenAIProvider:
     """Calls the OpenAI Chat Completions API."""
@@ -100,6 +103,7 @@ class OpenAIProvider:
 
 # -- Anthropic (Claude) Provider -----------------------------------------------
 
+
 class AnthropicProvider:
     """
     Calls the Anthropic Claude API.
@@ -110,16 +114,14 @@ class AnthropicProvider:
 
     def __init__(self) -> None:
         try:
-            import anthropic  # noqa: PLC0415
+            import anthropic
         except ImportError as exc:
             raise ImportError(
                 "anthropic package not installed. Run: pip install anthropic"
             ) from exc
 
         settings = get_settings()
-        self._client = anthropic.Anthropic(
-            api_key=settings.anthropic_api_key.get_secret_value()
-        )
+        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
         self._model = settings.anthropic_model
         log.info(f"Anthropic (Claude) provider ready. Model: [bold]{self._model}[/bold]")
 
@@ -148,8 +150,7 @@ class AnthropicProvider:
             messages=chat_messages,  # type: ignore[arg-type]
             max_tokens=1024,
         ) as stream:
-            for text in stream.text_stream:
-                yield text
+            yield from stream.text_stream
 
     @staticmethod
     def _split_messages(
@@ -168,6 +169,7 @@ class AnthropicProvider:
 
 # -- Provider Factory ----------------------------------------------------------
 
+
 def _build_provider() -> AIProviderProtocol:
     """Instantiate the correct provider based on the AI_PROVIDER setting."""
     settings = get_settings()
@@ -180,6 +182,7 @@ def _build_provider() -> AIProviderProtocol:
 
 
 # -- Brain ---------------------------------------------------------------------
+
 
 class Brain:
     """

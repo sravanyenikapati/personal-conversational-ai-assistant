@@ -32,13 +32,13 @@ from assistant.logger import get_logger
 log = get_logger(__name__)
 
 # ── Audio recording constants ──────────────────────────────────────────────────
-_SAMPLE_RATE = 16_000      # 16 kHz — optimal for Whisper
-_CHANNELS = 1              # mono
-_DTYPE = "int16"           # 16-bit PCM
-_BLOCK_SIZE = 1024         # frames per callback block
-_SILENCE_THRESHOLD = 600   # RMS below this = silence (raised to reduce noise pickup)
-_SILENCE_DURATION = 2.0    # seconds of silence before auto-stop
-_MAX_DURATION = 60.0       # hard cap: 60 seconds per recording
+_SAMPLE_RATE = 16_000  # 16 kHz — optimal for Whisper
+_CHANNELS = 1  # mono
+_DTYPE = "int16"  # 16-bit PCM
+_BLOCK_SIZE = 1024  # frames per callback block
+_SILENCE_THRESHOLD = 600  # RMS below this = silence (raised to reduce noise pickup)
+_SILENCE_DURATION = 2.0  # seconds of silence before auto-stop
+_MAX_DURATION = 60.0  # hard cap: 60 seconds per recording
 
 
 class SpeechToText:
@@ -57,7 +57,7 @@ class SpeechToText:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def transcribe(self, on_recording_start: callable = None) -> str:  # type: ignore[type-arg]
+    def transcribe(self, on_recording_start: callable | None = None) -> str:  # type: ignore[type-arg]
         """
         Record from the microphone and return the transcribed text.
 
@@ -82,7 +82,7 @@ class SpeechToText:
 
     # ── Recording ─────────────────────────────────────────────────────────────
 
-    def _record(self, on_start: callable = None) -> bytes | None:  # type: ignore[type-arg]
+    def _record(self, on_start: callable | None = None) -> bytes | None:  # type: ignore[type-arg]
         """
         Record from the default microphone until silence is detected.
         Uses sounddevice — works on Python 3.14+ without any compiler.
@@ -159,7 +159,7 @@ class SpeechToText:
 
     def _whisper_api(self, audio_bytes: bytes, filename: str = "audio.wav") -> str:
         """Send audio bytes to the OpenAI Whisper API."""
-        from openai import OpenAI  # noqa: PLC0415
+        from openai import OpenAI
 
         client = OpenAI(api_key=self._settings.openai_api_key.get_secret_value())
         audio_file = io.BytesIO(audio_bytes)
@@ -170,7 +170,7 @@ class SpeechToText:
             model=self._settings.whisper_model,
             file=audio_file,
             response_format="text",
-            language="en",   # force English — prevents garbled noise being read as other languages
+            language="en",  # force English — prevents garbled noise being read as other languages
         )
         text = str(transcript).strip()
         log.info(f"Transcribed: [italic]{text!r}[/italic]")
@@ -179,13 +179,13 @@ class SpeechToText:
     def _whisper_local(self, audio_bytes: bytes) -> str:
         """Transcribe using the local whisper model (no internet required)."""
         try:
-            import whisper  # noqa: PLC0415
+            import whisper
         except ImportError as exc:
             raise ImportError(
                 "Local Whisper not installed. Run: pip install openai-whisper"
             ) from exc
 
-        import tempfile  # noqa: PLC0415
+        import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes)
@@ -206,7 +206,7 @@ class SpeechToText:
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(_CHANNELS)
-            wf.setsampwidth(2)          # 2 bytes = int16
+            wf.setsampwidth(2)  # 2 bytes = int16
             wf.setframerate(_SAMPLE_RATE)
             wf.writeframes(audio.tobytes())
         return buf.getvalue()

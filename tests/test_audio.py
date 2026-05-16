@@ -6,11 +6,8 @@ Audio hardware is mocked — these tests run in CI with no microphone or speaker
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 
 class TestTextToSpeech:
-
     @patch("assistant.audio.tts.edge_tts")
     def test_speak_does_not_raise(self, mock_edge_tts):
         """TTS.speak() should not raise even if edge_tts fails."""
@@ -43,7 +40,6 @@ class TestTextToSpeech:
 
 
 class TestSpeechToText:
-
     def test_stt_initialises_with_correct_engine(self):
         """STT should pick up the engine from settings."""
         from assistant.audio.stt import SpeechToText

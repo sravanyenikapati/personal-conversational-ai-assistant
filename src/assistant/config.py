@@ -19,8 +19,8 @@ class AIProvider(str, Enum):
 
 
 class STTEngine(str, Enum):
-    WHISPER_API = "whisper-api"       # Uses OpenAI API — needs key, fastest
-    WHISPER_LOCAL = "whisper-local"   # Runs locally — no key, slower
+    WHISPER_API = "whisper-api"  # Uses OpenAI API — needs key, fastest
+    WHISPER_LOCAL = "whisper-local"  # Runs locally — no key, slower
 
 
 class Settings(BaseSettings):
@@ -75,15 +75,13 @@ class Settings(BaseSettings):
             key = self.openai_api_key.get_secret_value()
             if not key or key.startswith("sk-..."):
                 raise ValueError(
-                    "OPENAI_API_KEY is not set. "
-                    "Add it to your .env file and try again."
+                    "OPENAI_API_KEY is not set. Add it to your .env file and try again."
                 )
         elif self.ai_provider == AIProvider.ANTHROPIC:
             key = self.anthropic_api_key.get_secret_value()
             if not key or key.startswith("sk-ant-..."):
                 raise ValueError(
-                    "ANTHROPIC_API_KEY is not set. "
-                    "Add it to your .env file and try again."
+                    "ANTHROPIC_API_KEY is not set. Add it to your .env file and try again."
                 )
 
 

@@ -14,7 +14,7 @@ Two chat modes:
 from __future__ import annotations
 
 import threading
-from typing import Iterator
+from collections.abc import Iterator
 
 from assistant.config import get_settings
 from assistant.core.brain import AIProviderProtocol
@@ -69,10 +69,7 @@ class ConversationStore:
             reply = "Sorry, I ran into an issue generating a response. Please try again."
 
         history.add_assistant_message(reply)
-        log.info(
-            f"[session={session_id[:8]}] [{agent_id}] "
-            f"history={len(history)} messages"
-        )
+        log.info(f"[session={session_id[:8]}] [{agent_id}] history={len(history)} messages")
         return reply, len(history)
 
     def stream_chat(
@@ -127,8 +124,7 @@ class ConversationStore:
             for key in keys_to_remove:
                 del self._store[key]
             log.info(
-                f"Cleared session {session_id[:8]} "
-                f"({len(keys_to_remove)} agent histories removed)."
+                f"Cleared session {session_id[:8]} ({len(keys_to_remove)} agent histories removed)."
             )
 
     def message_count(self, *, session_id: str, agent_id: str) -> int:
@@ -158,7 +154,6 @@ class ConversationStore:
                     max_messages=self._max_messages,
                 )
                 log.debug(
-                    f"Created new conversation for "
-                    f"[session={session_id[:8]}, agent={agent_id}]."
+                    f"Created new conversation for [session={session_id[:8]}, agent={agent_id}]."
                 )
             return self._store[key]

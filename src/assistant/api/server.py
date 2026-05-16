@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,6 +64,7 @@ app.add_middleware(
 
 # -- Pydantic Models -----------------------------------------------------------
 
+
 class AgentInfo(BaseModel):
     id: str
     name: str
@@ -73,7 +74,7 @@ class AgentInfo(BaseModel):
     disclaimer: str | None = None
 
     @classmethod
-    def from_config(cls, config: AgentConfig) -> "AgentInfo":
+    def from_config(cls, config: AgentConfig) -> AgentInfo:
         return cls(
             id=config.id,
             name=config.name,
@@ -113,6 +114,7 @@ class ClearResponse(BaseModel):
 
 
 # -- Routes --------------------------------------------------------------------
+
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 async def health() -> HealthResponse:

@@ -36,10 +36,7 @@ class AgentRouter:
         config = AGENTS.get(agent_id)
         if config is None:
             valid = ", ".join(f'"{k}"' for k in AGENTS)
-            raise KeyError(
-                f"Unknown agent_id {agent_id!r}. "
-                f"Valid options are: {valid}."
-            )
+            raise KeyError(f"Unknown agent_id {agent_id!r}. Valid options are: {valid}.")
         return config
 
     def list_all(self) -> list[AgentConfig]:

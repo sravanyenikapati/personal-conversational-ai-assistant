@@ -61,7 +61,7 @@ class ConversationHistory:
         """
         if include_system:
             system_msg = Message(role=Role.SYSTEM, content=self.system_prompt)
-            return [system_msg] + list(self._messages)
+            return [system_msg, *list(self._messages)]
         return list(self._messages)
 
     def clear(self) -> None:

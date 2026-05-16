@@ -3,16 +3,12 @@ Tests for conversation history management.
 These are pure unit tests — no API calls, no audio.
 """
 
-import pytest
-
 from assistant.core.conversation import ConversationHistory, Role
-
 
 SYSTEM_PROMPT = "You are a helpful assistant."
 
 
 class TestConversationHistory:
-
     def test_initial_state(self):
         history = ConversationHistory(system_prompt=SYSTEM_PROMPT)
         assert len(history) == 0

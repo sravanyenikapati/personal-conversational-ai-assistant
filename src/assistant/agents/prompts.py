@@ -23,10 +23,10 @@ from dataclasses import dataclass
 class AgentConfig:
     """Immutable configuration for a single AI agent."""
 
-    id: str             # URL-safe, e.g. "health" — used in API + Flutter routing
-    name: str           # Display name, e.g. "Health & Wellness"
-    emoji: str          # Single emoji for the agent selector UI card
-    description: str    # One-sentence description shown in the agent selector
+    id: str  # URL-safe, e.g. "health" — used in API + Flutter routing
+    name: str  # Display name, e.g. "Health & Wellness"
+    emoji: str  # Single emoji for the agent selector UI card
+    description: str  # One-sentence description shown in the agent selector
     system_prompt: str  # Full instruction passed to the AI provider
     disclaimer: str | None = None  # Short legal/safety note shown in the Flutter UI header
 

@@ -25,7 +25,7 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
-from tkinter import scrolledtext, ttk
+from tkinter import scrolledtext
 
 from assistant.audio.stt import SpeechToText
 from assistant.audio.tts import TextToSpeech
@@ -36,13 +36,13 @@ from assistant.logger import get_logger
 log = get_logger(__name__)
 
 # ── Colour palette ─────────────────────────────────────────────────────────────
-_BG = "#1e1e2e"          # main background (dark)
-_BG_INPUT = "#2a2a3e"    # input area
-_BG_MSG_USER = "#3a3a5c" # user message bubble
-_BG_MSG_AI = "#2a2a3e"   # assistant message bubble
-_FG = "#cdd6f4"          # primary text
-_FG_DIM = "#7f849c"      # secondary text
-_ACCENT = "#89b4fa"       # blue accent
+_BG = "#1e1e2e"  # main background (dark)
+_BG_INPUT = "#2a2a3e"  # input area
+_BG_MSG_USER = "#3a3a5c"  # user message bubble
+_BG_MSG_AI = "#2a2a3e"  # assistant message bubble
+_FG = "#cdd6f4"  # primary text
+_FG_DIM = "#7f849c"  # secondary text
+_ACCENT = "#89b4fa"  # blue accent
 _ACCENT_MIC = "#f38ba8"  # red for mic active
 _BTN_SEND = "#89b4fa"
 _FONT_FAMILY = "Segoe UI"
@@ -67,7 +67,7 @@ class ChatApp(tk.Tk):
         self._stt = SpeechToText()
 
         # ── State ─────────────────────────────────────────────────────────────
-        self._input_was_voice = False   # tracks mode for output routing
+        self._input_was_voice = False  # tracks mode for output routing
         self._is_recording = False
         self._is_thinking = False
 
@@ -81,8 +81,7 @@ class ChatApp(tk.Tk):
         # ── Welcome message ───────────────────────────────────────────────────
         self._append_message(
             "Assistant",
-            f"Hello! I'm your personal AI assistant. "
-            f"You can type a message or press 🎤 to speak.",
+            "Hello! I'm your personal AI assistant. You can type a message or press 🎤 to speak.",
             is_user=False,
         )
 
@@ -297,9 +296,7 @@ class ChatApp(tk.Tk):
         content = self._chat_display.get("1.0", tk.END)
         thinking_marker = "\nAssistant\nThinking...\n"
         if content.endswith(thinking_marker):
-            self._chat_display.delete(
-                f"end - {len(thinking_marker)}c", tk.END
-            )
+            self._chat_display.delete(f"end - {len(thinking_marker)}c", tk.END)
         self._chat_display.configure(state=tk.DISABLED)
 
     def _set_thinking(self, thinking: bool) -> None:
@@ -337,6 +334,7 @@ class ChatApp(tk.Tk):
 def main() -> None:
     """Entry point for the desktop UI."""
     from assistant.logger import configure_root_logger
+
     settings = get_settings()
     configure_root_logger(settings.log_level)
     app = ChatApp()

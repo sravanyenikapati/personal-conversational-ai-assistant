@@ -6,13 +6,10 @@ All OpenAI API calls are mocked — these tests run offline with no API key need
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from assistant.core.brain import Brain, OpenAIProvider
 
 
 class TestOpenAIProvider:
-
     @patch("assistant.core.brain.OpenAI")
     def test_complete_returns_string(self, mock_openai_cls):
         """Provider.complete() should return the assistant message content."""
@@ -61,7 +58,6 @@ class TestOpenAIProvider:
 
 
 class TestBrain:
-
     @patch("assistant.core.brain.OpenAI")
     def test_chat_returns_reply(self, mock_openai_cls):
         """Brain.chat() should return the AI reply."""

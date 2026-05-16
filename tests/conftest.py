@@ -4,8 +4,6 @@ Pytest shared fixtures.
 These fixtures are available in all test files automatically.
 """
 
-import os
-
 import pytest
 
 

@@ -14,7 +14,7 @@ respx>=0.21.0                # mock httpx (for OpenAI/Anthropic HTTP calls)
 
 # ── Linting & Formatting ───────────────────────────────────────────────────────
 ruff>=0.4.0                  # linter + formatter (replaces flake8 + black + isort)
-mypy>=1.10.0                 # static type checking
+mypy>=1.10.0,<2.0                 # static type checking
 
 # ── Type Stubs ─────────────────────────────────────────────────────────────────
 types-requests>=2.32.0
