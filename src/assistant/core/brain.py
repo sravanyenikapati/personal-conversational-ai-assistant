@@ -2,15 +2,19 @@
 AI Brain — provider-agnostic abstraction layer.
 
 Architecture:
-    AIProvider (Protocol)          ← abstract interface
-    ├── OpenAIProvider             ← active (Phase 1)
-    └── AnthropicProvider          ← ready (Phase 2, swap via .env)
+    AIProviderProtocol              ← abstract interface (typing.Protocol)
+    ├── OpenAIProvider              ← active (Phase 1 default)
+    └── AnthropicProvider           ← active (Phase 2, set AI_PROVIDER=anthropic in .env)
 
-    Brain                          ← single entry point used by the rest of the app
-        brain.chat(user_message)   ← returns assistant reply string
+    Brain                           ← single entry point used by UI, API, and ConversationStore
+        brain.chat(user_message)    ← returns assistant reply string
 
-Swapping providers requires only changing AI_PROVIDER in .env.
-No code changes needed anywhere else.
+Phase 2 additions:
+    - Brain accepts an optional `system_prompt` override (for per-agent prompts).
+    - Brain accepts an optional `provider` injection (so ConversationStore can share
+      one HTTP client across all agent conversations — efficient and clean).
+
+Swapping providers still requires only changing AI_PROVIDER in .env.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ class AIProviderProtocol(Protocol):
     """
 
     def complete(self, messages: list[dict[str, str]]) -> str:
-        """Send messages and return the assistant's reply as a string."""
+        """Send a message list and return the assistant's reply as a string."""
         ...
 
 
@@ -68,14 +72,14 @@ class OpenAIProvider:
         return content.strip()
 
 
-# ── Anthropic (Claude) Provider — Phase 2 ─────────────────────────────────────
+# ── Anthropic (Claude) Provider ────────────────────────────────────────────────
 
 class AnthropicProvider:
     """
     Calls the Anthropic Claude API.
 
-    Phase 2: Uncomment and install `anthropic` package.
-    Switch AI_PROVIDER=anthropic in .env to activate.
+    Active in Phase 2. Set AI_PROVIDER=anthropic in your .env to use Claude.
+    Requires ANTHROPIC_API_KEY to be set.
     """
 
     def __init__(self) -> None:
@@ -118,7 +122,7 @@ class AnthropicProvider:
 # ── Provider Factory ───────────────────────────────────────────────────────────
 
 def _build_provider() -> AIProviderProtocol:
-    """Instantiate the correct provider based on settings."""
+    """Instantiate the correct provider based on the AI_PROVIDER setting."""
     settings = get_settings()
     if settings.ai_provider == AIProvider.OPENAI:
         return OpenAIProvider()
@@ -134,21 +138,44 @@ class Brain:
     """
     The central AI controller.
 
-    Owns the conversation history and delegates completions to the active provider.
-    This is the ONLY class the UI and API layers should talk to.
+    Owns a ConversationHistory and delegates completions to an AI provider.
+    This is the entry point used by the desktop UI and CLI.
 
-    Usage:
+    For the multi-agent API (Phase 2), the ConversationStore manages Brain-like
+    conversation logic directly — sharing one provider across all agent conversations.
+
+    Args:
+        system_prompt: Override the default system prompt from settings.
+                       Used by the desktop UI when switching agents.
+        provider:      Inject a pre-built provider. If omitted, one is built from
+                       settings. Injection allows sharing a single HTTP client.
+
+    Usage (single-agent, desktop UI):
         brain = Brain()
-        reply = brain.chat("What's the weather like on Mars?")
+        reply = brain.chat("What's the weather on Mars?")
+
+    Usage (per-agent, with shared provider):
+        provider = _build_provider()
+        health_brain = Brain(system_prompt=AGENTS["health"].system_prompt, provider=provider)
+        finance_brain = Brain(system_prompt=AGENTS["finance"].system_prompt, provider=provider)
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        system_prompt: str | None = None,
+        provider: AIProviderProtocol | None = None,
+    ) -> None:
         settings = get_settings()
-        settings.validate_provider()
 
-        self._provider: AIProviderProtocol = _build_provider()
+        if provider is not None:
+            # Injected — skip validation (caller is responsible)
+            self._provider = provider
+        else:
+            settings.validate_provider()
+            self._provider = _build_provider()
+
         self._history = ConversationHistory(
-            system_prompt=settings.system_prompt,
+            system_prompt=system_prompt or settings.system_prompt,
             max_messages=settings.max_conversation_history,
         )
         log.info("Brain initialised. Ready to chat.")
@@ -157,7 +184,7 @@ class Brain:
         """
         Process a user message and return the assistant's reply.
 
-        Automatically manages conversation history.
+        Automatically manages conversation history (rolling window).
 
         Args:
             user_message: The user's input (from text or voice).
@@ -174,6 +201,7 @@ class Brain:
             reply = self._provider.complete(self._history.get_messages())
         except Exception as exc:
             log.error(f"AI provider error: {exc}", exc_info=True)
+            self._history._messages.pop()  # remove the user message to keep history clean
             reply = "Sorry, I ran into an issue generating a response. Please try again."
 
         self._history.add_assistant_message(reply)
@@ -185,5 +213,5 @@ class Brain:
 
     @property
     def history(self) -> ConversationHistory:
-        """Read-only access to conversation history for display in UI."""
+        """Read-only access to conversation history (for display in UI)."""
         return self._history

@@ -9,7 +9,6 @@ Usage anywhere in the project:
 """
 
 import logging
-import sys
 
 from rich.logging import RichHandler
 
@@ -43,7 +42,6 @@ def configure_root_logger(level: str = "INFO") -> None:
                 rich_tracebacks=True,
                 show_time=True,
                 markup=True,
-                stream=sys.stdout,
             )
         ],
         format="%(message)s",

@@ -11,8 +11,8 @@ anthropic>=0.28.0            # Claude API — Phase 2 (install now, ready when n
 edge-tts>=6.1.9              # Microsoft Edge TTS — free, no API key, high quality
 
 # ── Voice Input ────────────────────────────────────────────────────────────────
-pyaudio>=0.2.14              # Microphone access for recording
-sounddevice>=0.4.6           # Cross-platform audio I/O (fallback)
+sounddevice>=0.4.6           # Cross-platform audio I/O (no C++ compiler needed)
+soundfile>=0.12.1            # Read/write audio files (WAV, FLAC, etc.)
 numpy>=1.26.0                # Audio buffer processing
 
 # ── Config & Environment ───────────────────────────────────────────────────────
