@@ -1,0 +1,43 @@
+name: ai_assistant
+description: Personal AI Assistant — Aurora Dark, voice-first mobile app.
+publish_to: 'none'
+version: 0.3.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP + SSE streaming
+  http: ^1.2.1
+
+  # State management
+  provider: ^6.1.2
+
+  # Voice input
+  speech_to_text: ^6.6.2
+
+  # Voice output
+  flutter_tts: ^4.0.2
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Persistent settings (base URL, selected agent)
+  shared_preferences: ^2.3.2
+
+  # Unique session IDs
+  uuid: ^4.5.0
+
+  # Animations
+  flutter_animate: ^4.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
