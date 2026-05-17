@@ -1,5 +1,7 @@
 /// Horizontal scrolling agent selector chip row.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,20 +19,34 @@ class AgentSelector extends StatelessWidget {
     final selected = provider.selectedAgent;
 
     return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        scrollDirection: Axis.horizontal,
-        itemCount: agents.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final agent = agents[i];
-          final isSelected = agent.id == selected.id;
-          return _AgentChip(agent: agent, isSelected: isSelected);
-        },
+      height: 48,
+      child: ScrollConfiguration(
+        // Allow mouse-wheel / trackpad scrolling on web
+        behavior: kIsWeb ? _WebScrollBehavior() : ScrollConfiguration.of(context),
+        child: ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          scrollDirection: Axis.horizontal,
+          itemCount: agents.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (context, i) {
+            final agent = agents[i];
+            final isSelected = agent.id == selected.id;
+            return _AgentChip(agent: agent, isSelected: isSelected);
+          },
+        ),
       ),
     );
   }
+}
+
+/// Enables mouse-drag and trackpad scrolling for horizontal lists on web.
+class _WebScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+      };
 }
 
 class _AgentChip extends StatelessWidget {

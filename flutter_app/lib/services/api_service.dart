@@ -8,16 +8,21 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/agent.dart';
 
 class ApiService {
-  static const String _defaultBaseUrl = 'http://10.0.2.2:8000'; // Android emulator -> localhost
+  /// Web runs in the same host browser — use localhost.
+  /// Android emulator maps host localhost to 10.0.2.2.
+  static final String _defaultBaseUrl =
+      kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000';
+
   static const String _prefKey = 'backend_base_url';
 
-  String _baseUrl = _defaultBaseUrl;
+  String _baseUrl = kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000';
 
   ApiService() {
     _loadBaseUrl();

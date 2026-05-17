@@ -7,7 +7,9 @@
 ///   Divider
 ///   InputRow       text field + send + mic button
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/chat_provider.dart';
@@ -65,18 +67,28 @@ class _ChatScreenState extends State<ChatScreen> {
     // Auto-scroll when new content arrives
     if (provider.messages.isNotEmpty) _scrollToBottom();
 
+    final body = Column(
+      children: [
+        const AgentSelector(),
+        const SizedBox(height: 4),
+        const Divider(height: 1),
+        Expanded(child: _buildMessageList(provider)),
+        const Divider(height: 1),
+        _buildInputRow(context, provider),
+      ],
+    );
+
     return Scaffold(
       appBar: _buildAppBar(context, provider),
-      body: Column(
-        children: [
-          const AgentSelector(),
-          const SizedBox(height: 8),
-          const Divider(height: 1),
-          Expanded(child: _buildMessageList(provider)),
-          const Divider(height: 1),
-          _buildInputRow(context, provider),
-        ],
-      ),
+      // On web: centre a max-720 px column so text never spans the full browser width
+      body: kIsWeb
+          ? Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: body,
+              ),
+            )
+          : body,
     );
   }
 
@@ -163,9 +175,63 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildInputRow(BuildContext context, ChatProvider provider) {
     final isListening = provider.listeningState == ListeningState.listening;
 
+    // On web, Enter sends; Shift+Enter inserts a newline.
+    // On mobile, the soft keyboard send button sends.
+    final textField = TextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      maxLines: 5,
+      minLines: 1,
+      textInputAction: kIsWeb ? TextInputAction.done : TextInputAction.newline,
+      style: const TextStyle(color: AuroraColors.textPrimary, fontSize: 15),
+      decoration: InputDecoration(
+        hintText: isListening
+            ? provider.liveTranscript.isEmpty
+                ? 'Listening…'
+                : provider.liveTranscript
+            : 'Message ${provider.selectedAgent.name}…',
+        hintStyle: TextStyle(
+          color: isListening ? AuroraColors.accent : AuroraColors.textSecondary,
+          fontSize: 15,
+        ),
+        border: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        suffixIcon: _controller.text.isEmpty
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.send_rounded, color: AuroraColors.accent),
+                onPressed: () => _send(provider),
+              ),
+      ),
+      onChanged: (_) => setState(() {}),
+      onSubmitted: (_) => _send(provider),
+    );
+
+    // Intercept Enter key on web to send; Shift+Enter passes through.
+    final wrappedField = kIsWeb
+        ? KeyboardListener(
+            focusNode: FocusNode(),
+            onKeyEvent: (event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                _send(provider);
+              }
+            },
+            child: textField,
+          )
+        : textField;
+
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          8,
+          16,
+          kIsWeb ? 16 : 12, // extra bottom padding on web (no home bar)
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -180,41 +246,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     width: isListening ? 1.5 : 1,
                   ),
                 ),
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  maxLines: 5,
-                  minLines: 1,
-                  textInputAction: TextInputAction.newline,
-                  style: const TextStyle(color: AuroraColors.textPrimary, fontSize: 15),
-                  decoration: InputDecoration(
-                    hintText: isListening
-                        ? provider.liveTranscript.isEmpty
-                            ? 'Listening…'
-                            : provider.liveTranscript
-                        : 'Message ${provider.selectedAgent.name}…',
-                    hintStyle: TextStyle(
-                      color: isListening ? AuroraColors.accent : AuroraColors.textSecondary,
-                      fontSize: 15,
-                    ),
-                    border: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                    suffixIcon: _controller.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.send_rounded, color: AuroraColors.accent),
-                            onPressed: () => _send(provider),
-                          ),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  onSubmitted: (_) => _send(provider),
-                ),
+                child: wrappedField,
               ),
             ),
             const SizedBox(width: 10),
-            const MicButton(),
+            // Hide mic on web — speech API requires native platform
+            if (!kIsWeb) const MicButton(),
           ],
         ),
       ),
