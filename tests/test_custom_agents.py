@@ -13,7 +13,6 @@ Coverage:
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,6 @@ from fastapi.testclient import TestClient
 
 from assistant.agents.custom_store import CustomAgent, CustomAgentStore
 from assistant.agents.router import AgentRouter
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -95,12 +93,18 @@ class TestCustomAgentStore:
 
     def test_list_all_returns_agents_by_creation_order(self, tmp_store):
         a = tmp_store.create(
-            name="Alpha", emoji="🅰️", description="First",
-            personality="p", knowledge="k",
+            name="Alpha",
+            emoji="🅰️",
+            description="First",
+            personality="p",
+            knowledge="k",
         )
         b = tmp_store.create(
-            name="Beta", emoji="🅱️", description="Second",
-            personality="p", knowledge="k",
+            name="Beta",
+            emoji="🅱️",
+            description="Second",
+            personality="p",
+            knowledge="k",
         )
         agents = tmp_store.list_all()
         assert [ag.id for ag in agents] == [a.id, b.id]
@@ -150,8 +154,11 @@ class TestCustomAgentStore:
     def test_len(self, tmp_store, sample_agent):
         assert len(tmp_store) == 1
         tmp_store.create(
-            name="Bot 2", emoji="🤖", description="Second bot",
-            personality="p", knowledge="k",
+            name="Bot 2",
+            emoji="🤖",
+            description="Second bot",
+            personality="p",
+            knowledge="k",
         )
         assert len(tmp_store) == 2
 
@@ -160,8 +167,11 @@ class TestCustomAgentStore:
         file = tmp_path / "agents.json"
         store_a = CustomAgentStore(data_file=file)
         agent = store_a.create(
-            name="Persistent Bot", emoji="💾", description="Survives restart",
-            personality="Reliable", knowledge="Databases",
+            name="Persistent Bot",
+            emoji="💾",
+            description="Survives restart",
+            personality="Reliable",
+            knowledge="Databases",
         )
         # Create a new store instance from the same file
         store_b = CustomAgentStore(data_file=file)
@@ -222,8 +232,17 @@ class TestAgentRouterWithCustom:
     def test_list_all_includes_custom_after_builtins(self, tmp_store, sample_agent):
         router = AgentRouter(custom_store=tmp_store)
         all_ids = [a.id for a in router.list_all()]
-        builtin_ids = ["general", "health", "finance", "legal", "career",
-                       "tutor", "travel", "tech", "creative"]
+        builtin_ids = [
+            "general",
+            "health",
+            "finance",
+            "legal",
+            "career",
+            "tutor",
+            "travel",
+            "tech",
+            "creative",
+        ]
         # Built-ins come first in order
         for i, bid in enumerate(builtin_ids):
             assert all_ids[i] == bid
@@ -248,13 +267,16 @@ class TestAgentRouterWithCustom:
 
 class TestCustomAgentEndpoints:
     def test_create_custom_agent(self, api_client):
-        resp = api_client.post("/custom-agents", json={
-            "name": "Study Buddy",
-            "emoji": "📖",
-            "description": "Helps with studying",
-            "personality": "Patient and encouraging",
-            "knowledge": "Mathematics and physics",
-        })
+        resp = api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Study Buddy",
+                "emoji": "📖",
+                "description": "Helps with studying",
+                "personality": "Patient and encouraging",
+                "knowledge": "Mathematics and physics",
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Study Buddy"
@@ -268,23 +290,41 @@ class TestCustomAgentEndpoints:
         assert resp.json() == []
 
     def test_list_custom_agents_after_create(self, api_client):
-        api_client.post("/custom-agents", json={
-            "name": "Bot A", "emoji": "🅰️", "description": "First",
-            "personality": "p", "knowledge": "k",
-        })
-        api_client.post("/custom-agents", json={
-            "name": "Bot B", "emoji": "🅱️", "description": "Second",
-            "personality": "p", "knowledge": "k",
-        })
+        api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Bot A",
+                "emoji": "🅰️",
+                "description": "First",
+                "personality": "p",
+                "knowledge": "k",
+            },
+        )
+        api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Bot B",
+                "emoji": "🅱️",
+                "description": "Second",
+                "personality": "p",
+                "knowledge": "k",
+            },
+        )
         resp = api_client.get("/custom-agents")
         assert resp.status_code == 200
         assert len(resp.json()) == 2
 
     def test_get_custom_agent(self, api_client):
-        created = api_client.post("/custom-agents", json={
-            "name": "Fetch Me", "emoji": "🔍", "description": "Fetchable",
-            "personality": "p", "knowledge": "k",
-        }).json()
+        created = api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Fetch Me",
+                "emoji": "🔍",
+                "description": "Fetchable",
+                "personality": "p",
+                "knowledge": "k",
+            },
+        ).json()
         resp = api_client.get(f"/custom-agents/{created['id']}")
         assert resp.status_code == 200
         assert resp.json()["name"] == "Fetch Me"
@@ -294,14 +334,23 @@ class TestCustomAgentEndpoints:
         assert resp.status_code == 404
 
     def test_update_custom_agent(self, api_client):
-        created = api_client.post("/custom-agents", json={
-            "name": "Old Name", "emoji": "🔧", "description": "Will update",
-            "personality": "p", "knowledge": "k",
-        }).json()
-        resp = api_client.put(f"/custom-agents/{created['id']}", json={
-            "name": "New Name",
-            "emoji": "✨",
-        })
+        created = api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Old Name",
+                "emoji": "🔧",
+                "description": "Will update",
+                "personality": "p",
+                "knowledge": "k",
+            },
+        ).json()
+        resp = api_client.put(
+            f"/custom-agents/{created['id']}",
+            json={
+                "name": "New Name",
+                "emoji": "✨",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["name"] == "New Name"
@@ -313,10 +362,16 @@ class TestCustomAgentEndpoints:
         assert resp.status_code == 404
 
     def test_delete_custom_agent(self, api_client):
-        created = api_client.post("/custom-agents", json={
-            "name": "Delete Me", "emoji": "🗑️", "description": "Gone soon",
-            "personality": "p", "knowledge": "k",
-        }).json()
+        created = api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Delete Me",
+                "emoji": "🗑️",
+                "description": "Gone soon",
+                "personality": "p",
+                "knowledge": "k",
+            },
+        ).json()
         resp = api_client.delete(f"/custom-agents/{created['id']}")
         assert resp.status_code == 204
         # Confirm it's gone
@@ -329,10 +384,16 @@ class TestCustomAgentEndpoints:
 
     def test_agents_list_includes_custom(self, api_client):
         """GET /agents should return built-ins + custom agents."""
-        api_client.post("/custom-agents", json={
-            "name": "My Agent", "emoji": "⭐", "description": "Custom one",
-            "personality": "Helpful", "knowledge": "Everything",
-        })
+        api_client.post(
+            "/custom-agents",
+            json={
+                "name": "My Agent",
+                "emoji": "⭐",
+                "description": "Custom one",
+                "personality": "Helpful",
+                "knowledge": "Everything",
+            },
+        )
         resp = api_client.get("/agents")
         assert resp.status_code == 200
         ids = [a["id"] for a in resp.json()]
@@ -340,10 +401,16 @@ class TestCustomAgentEndpoints:
         assert any(i.startswith("custom_") for i in ids)
 
     def test_health_includes_custom_agent_count(self, api_client):
-        api_client.post("/custom-agents", json={
-            "name": "Count Me", "emoji": "🔢", "description": "d",
-            "personality": "p", "knowledge": "k",
-        })
+        api_client.post(
+            "/custom-agents",
+            json={
+                "name": "Count Me",
+                "emoji": "🔢",
+                "description": "d",
+                "personality": "p",
+                "knowledge": "k",
+            },
+        )
         resp = api_client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["custom_agent_count"] == 1

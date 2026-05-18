@@ -33,7 +33,6 @@ from pydantic import BaseModel, Field
 
 from assistant.agents import AgentRouter, ConversationStore, CustomAgentStore
 from assistant.agents.custom_store import CustomAgent
-from assistant.agents.prompts import AgentConfig
 from assistant.config import get_settings
 from assistant.core.brain import _build_provider
 from assistant.logger import configure_root_logger, get_logger
@@ -80,7 +79,7 @@ class AgentInfo(BaseModel):
     is_custom: bool = False
 
     @classmethod
-    def from_config(cls, config) -> "AgentInfo":
+    def from_config(cls, config) -> AgentInfo:
         is_custom = isinstance(config, CustomAgent)
         return cls(
             id=config.id,
@@ -153,7 +152,7 @@ class CustomAgentResponse(BaseModel):
     is_custom: bool = True
 
     @classmethod
-    def from_agent(cls, agent: CustomAgent) -> "CustomAgentResponse":
+    def from_agent(cls, agent: CustomAgent) -> CustomAgentResponse:
         return cls(
             id=agent.id,
             name=agent.name,
@@ -327,7 +326,9 @@ async def get_custom_agent(agent_id: str) -> CustomAgentResponse:
 
 
 @app.put("/custom-agents/{agent_id}", response_model=CustomAgentResponse, tags=["custom-agents"])
-async def update_custom_agent(agent_id: str, request: UpdateCustomAgentRequest) -> CustomAgentResponse:
+async def update_custom_agent(
+    agent_id: str, request: UpdateCustomAgentRequest
+) -> CustomAgentResponse:
     agent = _custom_store.update(
         agent_id,
         name=request.name,
@@ -343,7 +344,9 @@ async def update_custom_agent(agent_id: str, request: UpdateCustomAgentRequest) 
     return CustomAgentResponse.from_agent(agent)
 
 
-@app.delete("/custom-agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["custom-agents"])
+@app.delete(
+    "/custom-agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["custom-agents"]
+)
 async def delete_custom_agent(agent_id: str) -> None:
     deleted = _custom_store.delete(agent_id)
     if not deleted:

@@ -222,10 +222,7 @@ class CustomAgentStore:
         try:
             if self._file.exists():
                 raw = json.loads(self._file.read_text(encoding="utf-8"))
-                self._agents = {
-                    entry["id"]: CustomAgent.from_dict(entry)
-                    for entry in raw
-                }
+                self._agents = {entry["id"]: CustomAgent.from_dict(entry) for entry in raw}
         except Exception as exc:
             log.error(f"Failed to load custom agents from {self._file}: {exc}")
             self._agents = {}

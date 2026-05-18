@@ -22,10 +22,10 @@ log = get_logger(__name__)
 class AgentRouter:
     """Resolves agent IDs to config-like objects (built-in + custom)."""
 
-    def __init__(self, custom_store: "CustomAgentStore | None" = None) -> None:
+    def __init__(self, custom_store: CustomAgentStore | None = None) -> None:
         self._custom = custom_store
 
-    def get(self, agent_id: str) -> "AgentConfig | CustomAgent":
+    def get(self, agent_id: str) -> AgentConfig | CustomAgent:
         config = AGENTS.get(agent_id)
         if config is not None:
             return config
@@ -40,7 +40,7 @@ class AgentRouter:
             "Custom agents can be created via POST /custom-agents."
         )
 
-    def list_all(self) -> "list[AgentConfig | CustomAgent]":
+    def list_all(self) -> list[AgentConfig | CustomAgent]:
         agents: list = list(AGENTS_ORDERED)
         if self._custom is not None:
             agents.extend(self._custom.list_all())

@@ -1,4 +1,0 @@
-{
-  "tests/test_agents.py::TestChatEndpoint::test_chat_returns_reply_and_session_id": true,
-  "tests/test_agents.py::TestChatEndpoint::test_clear_chat_resets_history": true
-}
