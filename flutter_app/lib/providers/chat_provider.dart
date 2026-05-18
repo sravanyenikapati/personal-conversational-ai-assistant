@@ -1,11 +1,4 @@
 /// ChatProvider — ChangeNotifier that owns all chat state.
-///
-/// Responsibilities:
-///   - Hold the message list
-///   - Manage session_id lifecycle
-///   - Drive SSE streaming into a live Message object
-///   - Expose STT listen / TTS speak helpers
-///   - Track selected agent
 
 import 'dart:async';
 
@@ -86,16 +79,40 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Refresh agent list from backend (called after create/edit/delete).
+  Future<void> refreshAgents() async {
+    _backendOnline = await _api.checkHealth();
+    if (_backendOnline) {
+      final fresh = await _api.fetchAgents();
+      if (fresh.isNotEmpty) {
+        agents = fresh;
+        // Keep selected agent if it still exists; otherwise fall back to general.
+        final stillExists = agents.any((a) => a.id == _selectedAgent.id);
+        if (!stillExists) {
+          _selectedAgent = agents.firstWhere(
+            (a) => a.id == 'general',
+            orElse: () => agents.first,
+          );
+        }
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Delete a custom agent, deselect if currently selected, refresh list.
+  Future<void> deleteCustomAgent(String agentId) async {
+    await _api.deleteCustomAgent(agentId);
+    await refreshAgents();
+  }
+
   // -- Send message ----------------------------------------------------------
 
   Future<void> sendMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _isResponding) return;
 
-    // Stop any active TTS
     await _tts.stop();
 
-    // Add user message
     final userMsg = Message(
       id: const Uuid().v4(),
       isUser: true,
@@ -106,7 +123,6 @@ class ChatProvider extends ChangeNotifier {
     _isResponding = true;
     notifyListeners();
 
-    // Add a placeholder assistant message that will stream in
     final assistantMsg = Message(
       id: const Uuid().v4(),
       isUser: false,
@@ -128,7 +144,6 @@ class ChatProvider extends ChangeNotifier {
       )) {
         switch (event['type']) {
           case 'session':
-            // backend may assign a session id; adopt it
             final sid = event['session_id'] as String?;
             if (sid != null) _sessionId = sid;
 
@@ -137,7 +152,6 @@ class ChatProvider extends ChangeNotifier {
             assistantMsg.text += chunk;
             sentenceBuf.write(chunk);
 
-            // Speak each sentence as it arrives
             if (_ttsEnabled) {
               final pending = sentenceBuf.toString();
               final match = RegExp(r'(?<=[.!?])\s').firstMatch(pending);
@@ -145,15 +159,12 @@ class ChatProvider extends ChangeNotifier {
                 final sentence = pending.substring(0, match.start + 1).trim();
                 sentenceBuf.clear();
                 sentenceBuf.write(pending.substring(match.end));
-                if (sentence.isNotEmpty) {
-                  unawaited(_tts.speak(sentence));
-                }
+                if (sentence.isNotEmpty) unawaited(_tts.speak(sentence));
               }
             }
             notifyListeners();
 
           case 'done':
-            // Speak any remaining sentence fragment
             if (_ttsEnabled && sentenceBuf.isNotEmpty) {
               final remainder = sentenceBuf.toString().trim();
               if (remainder.isNotEmpty) unawaited(_tts.speak(remainder));
@@ -238,11 +249,7 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> updateBackendUrl(String url) async {
     await _api.setBaseUrl(url);
-    _backendOnline = await _api.checkHealth();
-    if (_backendOnline) {
-      agents = await _api.fetchAgents();
-    }
-    notifyListeners();
+    await refreshAgents();
   }
 
   @override

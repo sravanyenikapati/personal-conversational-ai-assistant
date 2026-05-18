@@ -1,9 +1,17 @@
-/// API Service — connects Flutter app to the Phase 2.5 FastAPI backend.
+/// API Service — connects Flutter app to the Phase 4 FastAPI backend.
 ///
-/// GET  /agents          -> List<Agent>
-/// POST /chat/stream     -> SSE stream of token events
-/// DELETE /chat          -> clear one agent history
-/// DELETE /session       -> clear all agent histories
+/// Built-in agents:
+///   GET  /agents          -> List<Agent>
+///   POST /chat/stream     -> SSE stream of token events
+///   DELETE /chat          -> clear one agent history
+///   DELETE /session       -> clear all agent histories
+///
+/// Custom agents (Phase 4):
+///   GET    /custom-agents       -> List of custom agents
+///   POST   /custom-agents       -> Create custom agent
+///   GET    /custom-agents/{id}  -> Get one custom agent
+///   PUT    /custom-agents/{id}  -> Update custom agent
+///   DELETE /custom-agents/{id}  -> Delete custom agent
 
 import 'dart:async';
 import 'dart:convert';
@@ -15,8 +23,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent.dart';
 
 class ApiService {
-  /// Web runs in the same host browser — use localhost.
-  /// Android emulator maps host localhost to 10.0.2.2.
   static final String _defaultBaseUrl =
       kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000';
 
@@ -42,7 +48,7 @@ class ApiService {
   String get baseUrl => _baseUrl;
 
   // ---------------------------------------------------------------------------
-  // GET /agents
+  // GET /agents  (built-in + custom)
   // ---------------------------------------------------------------------------
 
   Future<List<Agent>> fetchAgents() async {
@@ -53,19 +59,12 @@ class ApiService {
         final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
         return data.map((j) => Agent.fromJson(j as Map<String, dynamic>)).toList();
       }
-    } catch (_) {
-      // fall through — caller uses Agent.defaults
-    }
+    } catch (_) {}
     return Agent.defaults;
   }
 
   // ---------------------------------------------------------------------------
   // POST /chat/stream  (Server-Sent Events)
-  //
-  // Yields SSE event maps:
-  //   {"type": "session", "session_id": "...", "agent_id": "..."}
-  //   {"type": "token",   "text": "..."}
-  //   {"type": "done",    "disclaimer": null}
   // ---------------------------------------------------------------------------
 
   Stream<Map<String, dynamic>> streamChat({
@@ -99,8 +98,6 @@ class ApiService {
         buffer.write(chunk);
         final raw = buffer.toString();
         final lines = raw.split('\n');
-
-        // Keep incomplete last line in buffer
         buffer.clear();
         buffer.write(lines.last);
 
@@ -109,14 +106,11 @@ class ApiService {
             try {
               final json = jsonDecode(line.substring(6)) as Map<String, dynamic>;
               yield json;
-            } catch (_) {
-              // skip malformed event
-            }
+            } catch (_) {}
           }
         }
       }
 
-      // Flush remaining buffer
       final remaining = buffer.toString().trim();
       if (remaining.startsWith('data: ')) {
         try {
@@ -129,7 +123,7 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
-  // DELETE /chat
+  // DELETE /chat  and  DELETE /session
   // ---------------------------------------------------------------------------
 
   Future<void> clearChat({required String sessionId, String agentId = 'general'}) async {
@@ -138,10 +132,6 @@ class ApiService {
       await http.delete(uri).timeout(const Duration(seconds: 10));
     } catch (_) {}
   }
-
-  // ---------------------------------------------------------------------------
-  // DELETE /session
-  // ---------------------------------------------------------------------------
 
   Future<void> clearSession(String sessionId) async {
     final uri = Uri.parse('$_baseUrl/session?session_id=$sessionId');
@@ -162,5 +152,110 @@ class ApiService {
     } catch (_) {
       return false;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Custom Agents — Phase 4
+  // ---------------------------------------------------------------------------
+
+  Future<List<Agent>> fetchCustomAgents() async {
+    final uri = Uri.parse('$_baseUrl/custom-agents');
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(resp.body) as List<dynamic>;
+        return data.map((j) => Agent.fromJson({
+          ...j as Map<String, dynamic>,
+          'has_disclaimer': (j['disclaimer'] != null),
+          'is_custom': true,
+        })).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<Agent?> createCustomAgent({
+    required String name,
+    required String emoji,
+    required String description,
+    required String personality,
+    required String knowledge,
+    String? disclaimer,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/custom-agents');
+    try {
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': name,
+          'emoji': emoji,
+          'description': description,
+          'personality': personality,
+          'knowledge': knowledge,
+          if (disclaimer != null && disclaimer.isNotEmpty) 'disclaimer': disclaimer,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode == 201) {
+        final j = jsonDecode(resp.body) as Map<String, dynamic>;
+        return Agent.fromJson({...j, 'has_disclaimer': j['disclaimer'] != null, 'is_custom': true});
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Agent?> updateCustomAgent({
+    required String agentId,
+    String? name,
+    String? emoji,
+    String? description,
+    String? personality,
+    String? knowledge,
+    String? disclaimer,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/custom-agents/$agentId');
+    try {
+      final body = <String, dynamic>{};
+      if (name != null) body['name'] = name;
+      if (emoji != null) body['emoji'] = emoji;
+      if (description != null) body['description'] = description;
+      if (personality != null) body['personality'] = personality;
+      if (knowledge != null) body['knowledge'] = knowledge;
+      if (disclaimer != null) body['disclaimer'] = disclaimer;
+
+      final resp = await http.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode == 200) {
+        final j = jsonDecode(resp.body) as Map<String, dynamic>;
+        return Agent.fromJson({...j, 'has_disclaimer': j['disclaimer'] != null, 'is_custom': true});
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> deleteCustomAgent(String agentId) async {
+    final uri = Uri.parse('$_baseUrl/custom-agents/$agentId');
+    try {
+      final resp = await http.delete(uri).timeout(const Duration(seconds: 10));
+      return resp.statusCode == 204;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getCustomAgentDetails(String agentId) async {
+    final uri = Uri.parse('$_baseUrl/custom-agents/$agentId');
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        return jsonDecode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
   }
 }

@@ -1,17 +1,23 @@
 """
-FastAPI Backend -- Phase 2.5: Multi-Agent API with Streaming.
+FastAPI Backend -- Phase 4: Multi-Agent API with Streaming + Custom Agents.
 
 Run locally:
     uvicorn assistant.api.server:app --reload --port 8000
 
 Endpoints:
-    GET  /health          -- liveness check
-    GET  /agents          -- list all available agents
-    GET  /agents/{id}     -- get one agent's details
-    POST /chat            -- send a message (blocking, full reply)
-    POST /chat/stream     -- send a message (Server-Sent Events streaming)
-    DELETE /chat          -- clear one agent's conversation history
-    DELETE /session       -- clear ALL agent histories for a session
+    GET  /health                -- liveness check
+    GET  /agents                -- list all agents (built-in + custom)
+    GET  /agents/{id}           -- get one agent
+    POST /chat                  -- blocking chat
+    POST /chat/stream           -- SSE streaming chat
+    DELETE /chat                -- clear one agent history
+    DELETE /session             -- clear all agent histories
+
+    GET    /custom-agents       -- list user-created agents
+    POST   /custom-agents       -- create custom agent
+    GET    /custom-agents/{id}  -- get one custom agent
+    PUT    /custom-agents/{id}  -- edit custom agent
+    DELETE /custom-agents/{id}  -- delete custom agent
 """
 
 from __future__ import annotations
@@ -25,7 +31,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from assistant.agents import AgentRouter, ConversationStore
+from assistant.agents import AgentRouter, ConversationStore, CustomAgentStore
+from assistant.agents.custom_store import CustomAgent
 from assistant.agents.prompts import AgentConfig
 from assistant.config import get_settings
 from assistant.core.brain import _build_provider
@@ -40,18 +47,16 @@ log = get_logger(__name__)
 settings.validate_provider()
 
 _provider = _build_provider()
-_router = AgentRouter()
+_custom_store = CustomAgentStore()
+_router = AgentRouter(custom_store=_custom_store)
 _store = ConversationStore(provider=_provider)
 
 # -- FastAPI App ---------------------------------------------------------------
 
 app = FastAPI(
     title=settings.app_name,
-    description=(
-        "Personal AI Assistant -- multi-agent REST API. "
-        "Nine specialist agents, isolated conversation memory per session."
-    ),
-    version="0.2.5",
+    description="Personal AI Assistant -- multi-agent REST API with custom agents.",
+    version="0.4.0",
 )
 
 app.add_middleware(
@@ -72,9 +77,11 @@ class AgentInfo(BaseModel):
     description: str
     has_disclaimer: bool
     disclaimer: str | None = None
+    is_custom: bool = False
 
     @classmethod
-    def from_config(cls, config: AgentConfig) -> AgentInfo:
+    def from_config(cls, config) -> "AgentInfo":
+        is_custom = isinstance(config, CustomAgent)
         return cls(
             id=config.id,
             name=config.name,
@@ -82,6 +89,7 @@ class AgentInfo(BaseModel):
             description=config.description,
             has_disclaimer=config.disclaimer is not None,
             disclaimer=config.disclaimer,
+            is_custom=is_custom,
         )
 
 
@@ -105,6 +113,7 @@ class HealthResponse(BaseModel):
     model: str
     active_conversations: int
     agent_count: int
+    custom_agent_count: int
 
 
 class ClearResponse(BaseModel):
@@ -113,7 +122,52 @@ class ClearResponse(BaseModel):
     session_id: str
 
 
-# -- Routes --------------------------------------------------------------------
+class CreateCustomAgentRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    emoji: str = Field(default="\U0001f916", max_length=8)
+    description: str = Field(..., min_length=1, max_length=200)
+    personality: str = Field(..., min_length=1, max_length=1000)
+    knowledge: str = Field(..., min_length=1, max_length=2000)
+    disclaimer: str | None = Field(default=None, max_length=300)
+
+
+class UpdateCustomAgentRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=60)
+    emoji: str | None = Field(default=None, max_length=8)
+    description: str | None = Field(default=None, max_length=200)
+    personality: str | None = Field(default=None, max_length=1000)
+    knowledge: str | None = Field(default=None, max_length=2000)
+    disclaimer: str | None = Field(default=None, max_length=300)
+
+
+class CustomAgentResponse(BaseModel):
+    id: str
+    name: str
+    emoji: str
+    description: str
+    personality: str
+    knowledge: str
+    disclaimer: str | None
+    created_at: str
+    updated_at: str
+    is_custom: bool = True
+
+    @classmethod
+    def from_agent(cls, agent: CustomAgent) -> "CustomAgentResponse":
+        return cls(
+            id=agent.id,
+            name=agent.name,
+            emoji=agent.emoji,
+            description=agent.description,
+            personality=agent.personality,
+            knowledge=agent.knowledge,
+            disclaimer=agent.disclaimer,
+            created_at=agent.created_at,
+            updated_at=agent.updated_at,
+        )
+
+
+# -- Routes: System ------------------------------------------------------------
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -128,6 +182,7 @@ async def health() -> HealthResponse:
         ),
         active_conversations=_store.session_count(),
         agent_count=len(_router),
+        custom_agent_count=len(_custom_store),
     )
 
 
@@ -147,7 +202,6 @@ async def get_agent(agent_id: str) -> AgentInfo:
 
 @app.post("/chat", response_model=ChatResponse, tags=["conversation"])
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Send a message and receive the complete reply (blocking)."""
     try:
         config = _router.get(request.agent_id)
     except KeyError as exc:
@@ -174,18 +228,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 @app.post("/chat/stream", tags=["conversation"])
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
-    """
-    Send a message and receive the reply as a Server-Sent Events stream.
-
-    Each SSE event is a JSON object:
-      {"type": "session", "session_id": "...", "agent_id": "..."}
-      {"type": "token",   "text": "Hello"}
-      {"type": "done",    "disclaimer": null}
-
-    The Flutter app accumulates tokens into the chat bubble in real time
-    and feeds complete sentences to TTS -- eliminating the waiting feeling.
-    Returns 400 if agent_id is unknown.
-    """
     try:
         config = _router.get(request.agent_id)
     except KeyError as exc:
@@ -241,11 +283,69 @@ async def clear_chat(
     agent_id: str = Query(default="general"),
 ) -> ClearResponse:
     _store.clear(session_id=session_id, agent_id=agent_id)
-    log.info(f"[DELETE /chat] session={session_id[:8]} agent={agent_id} cleared.")
     return ClearResponse(cleared=True, agent_id=agent_id, session_id=session_id)
 
 
 @app.delete("/session", status_code=status.HTTP_204_NO_CONTENT, tags=["conversation"])
 async def clear_session(session_id: str = Query(...)) -> None:
     _store.clear_session(session_id=session_id)
-    log.info(f"[DELETE /session] session={session_id[:8]} fully cleared.")
+
+
+# -- Routes: Custom Agents (Phase 4) ------------------------------------------
+
+
+@app.get("/custom-agents", response_model=list[CustomAgentResponse], tags=["custom-agents"])
+async def list_custom_agents() -> list[CustomAgentResponse]:
+    return [CustomAgentResponse.from_agent(a) for a in _custom_store.list_all()]
+
+
+@app.post(
+    "/custom-agents",
+    response_model=CustomAgentResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["custom-agents"],
+)
+async def create_custom_agent(request: CreateCustomAgentRequest) -> CustomAgentResponse:
+    agent = _custom_store.create(
+        name=request.name,
+        emoji=request.emoji,
+        description=request.description,
+        personality=request.personality,
+        knowledge=request.knowledge,
+        disclaimer=request.disclaimer,
+    )
+    log.info(f"[POST /custom-agents] Created {agent.name!r} [{agent.id}]")
+    return CustomAgentResponse.from_agent(agent)
+
+
+@app.get("/custom-agents/{agent_id}", response_model=CustomAgentResponse, tags=["custom-agents"])
+async def get_custom_agent(agent_id: str) -> CustomAgentResponse:
+    agent = _custom_store.get(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Custom agent {agent_id!r} not found.")
+    return CustomAgentResponse.from_agent(agent)
+
+
+@app.put("/custom-agents/{agent_id}", response_model=CustomAgentResponse, tags=["custom-agents"])
+async def update_custom_agent(agent_id: str, request: UpdateCustomAgentRequest) -> CustomAgentResponse:
+    agent = _custom_store.update(
+        agent_id,
+        name=request.name,
+        emoji=request.emoji,
+        description=request.description,
+        personality=request.personality,
+        knowledge=request.knowledge,
+        disclaimer=request.disclaimer,
+    )
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Custom agent {agent_id!r} not found.")
+    log.info(f"[PUT /custom-agents/{agent_id}] Updated {agent.name!r}")
+    return CustomAgentResponse.from_agent(agent)
+
+
+@app.delete("/custom-agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["custom-agents"])
+async def delete_custom_agent(agent_id: str) -> None:
+    deleted = _custom_store.delete(agent_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Custom agent {agent_id!r} not found.")
+    log.info(f"[DELETE /custom-agents/{agent_id}]")

@@ -1,54 +1,63 @@
 """
-Agent Router — look up agent configurations by ID.
+Agent Router -- resolves agent IDs to config objects.
 
-The router is the single source of truth for which agents exist.
-Both the API layer and the desktop UI use it to resolve agent IDs.
-
-Usage:
-    router = AgentRouter()
-    config = router.get("health")       # raises KeyError if unknown
-    all_agents = router.list_all()      # ordered list for the UI selector
+Built-in agents (prompts.py) are checked first.
+Custom agents (CustomAgentStore) are checked on miss.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from assistant.agents.custom_store import CustomAgent
 from assistant.agents.prompts import AGENTS, AGENTS_ORDERED, AgentConfig
 from assistant.logger import get_logger
+
+if TYPE_CHECKING:
+    from assistant.agents.custom_store import CustomAgentStore
 
 log = get_logger(__name__)
 
 
 class AgentRouter:
-    """
-    Resolves agent IDs to AgentConfig objects.
+    """Resolves agent IDs to config-like objects (built-in + custom)."""
 
-    Lightweight — no state, just a wrapper around the AGENTS registry.
-    Safe to instantiate once at startup and share across the application.
-    """
+    def __init__(self, custom_store: "CustomAgentStore | None" = None) -> None:
+        self._custom = custom_store
 
-    def get(self, agent_id: str) -> AgentConfig:
-        """
-        Return the AgentConfig for the given agent_id.
-
-        Raises:
-            KeyError: if agent_id is not registered.
-        """
+    def get(self, agent_id: str) -> "AgentConfig | CustomAgent":
         config = AGENTS.get(agent_id)
-        if config is None:
-            valid = ", ".join(f'"{k}"' for k in AGENTS)
-            raise KeyError(f"Unknown agent_id {agent_id!r}. Valid options are: {valid}.")
-        return config
+        if config is not None:
+            return config
+        if self._custom is not None:
+            custom = self._custom.get(agent_id)
+            if custom is not None:
+                return custom
+        valid = ", ".join(f'"{k}"' for k in AGENTS)
+        raise KeyError(
+            f"Unknown agent_id {agent_id!r}. "
+            f"Built-in options: {valid}. "
+            "Custom agents can be created via POST /custom-agents."
+        )
 
-    def list_all(self) -> list[AgentConfig]:
-        """Return all agents in display order (for the Flutter agent selector)."""
-        return list(AGENTS_ORDERED)
+    def list_all(self) -> "list[AgentConfig | CustomAgent]":
+        agents: list = list(AGENTS_ORDERED)
+        if self._custom is not None:
+            agents.extend(self._custom.list_all())
+        return agents
 
-    def ids(self) -> list[str]:
-        """Return all valid agent IDs."""
-        return [a.id for a in AGENTS_ORDERED]
+    def ids(self) -> list:
+        return [a.id for a in self.list_all()]
 
     def __contains__(self, agent_id: str) -> bool:
-        return agent_id in AGENTS
+        if agent_id in AGENTS:
+            return True
+        if self._custom is not None and agent_id in self._custom:
+            return True
+        return False
 
     def __len__(self) -> int:
-        return len(AGENTS)
+        base = len(AGENTS)
+        if self._custom is not None:
+            base += len(self._custom)
+        return base
