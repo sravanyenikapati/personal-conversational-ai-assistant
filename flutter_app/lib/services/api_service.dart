@@ -23,12 +23,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent.dart';
 
 class ApiService {
-  static final String _defaultBaseUrl =
-      kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000';
+  /// Production URL injected at build time via --dart-define=API_URL=https://...
+  /// Falls back to localhost (dev) if not set.
+  static const String _compiledUrl =
+      String.fromEnvironment('API_URL', defaultValue: '');
+
+  static final String _defaultBaseUrl = _compiledUrl.isNotEmpty
+      ? _compiledUrl
+      : (kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000');
 
   static const String _prefKey = 'backend_base_url';
 
-  String _baseUrl = kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000';
+  String _baseUrl = _defaultBaseUrl;
 
   ApiService() {
     _loadBaseUrl();

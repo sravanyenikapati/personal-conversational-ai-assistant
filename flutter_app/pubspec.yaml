@@ -1,7 +1,7 @@
 name: ai_assistant
 description: Personal AI Assistant — Aurora Dark, voice-first mobile app.
 publish_to: 'none'
-version: 0.3.0+1
+version: 0.5.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -39,5 +39,41 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^4.0.0
 
+  # App icon generation — run: flutter pub run flutter_launcher_icons
+  flutter_launcher_icons: ^0.14.1
+
+  # Splash screen — run: flutter pub run flutter_native_splash:create
+  flutter_native_splash: ^2.4.0
+
+# ── App Icon Configuration ─────────────────────────────────────────────────────
+# Source icon: assets/icon/app_icon.png (1024x1024, no transparency for Android)
+# Run: flutter pub run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  windows:
+    generate: false
+
+# ── Splash Screen Configuration ────────────────────────────────────────────────
+# Run: flutter pub run flutter_native_splash:create
+flutter_native_splash:
+  color: "#080D12"
+  image: assets/icon/splash_logo.png
+  color_dark: "#080D12"
+  image_dark: assets/icon/splash_logo.png
+  android_12:
+    color: "#080D12"
+    image: assets/icon/splash_logo.png
+  android: true
+  ios: true
+  web: true
+
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/

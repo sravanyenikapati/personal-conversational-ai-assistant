@@ -73,3 +73,15 @@ logs/
 # ── Conversation Data (user privacy) ──────────────────────────────────────────
 data/conversations/
 data/users/
+
+# ── Flutter Android Signing (NEVER commit these) ───────────────────────────────
+flutter_app/android/key.properties
+flutter_app/android/app/upload-keystore.jks
+flutter_app/android/app/*.jks
+flutter_app/android/app/*.keystore
+
+# ── Flutter build outputs ──────────────────────────────────────────────────────
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies

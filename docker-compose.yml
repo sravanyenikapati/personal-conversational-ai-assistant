@@ -1,0 +1,35 @@
+# Local production-like testing
+# Usage: docker-compose up --build
+# Then open: http://localhost:8000/health
+
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Copy from your .env — never commit real keys
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CUSTOM_AGENTS_DIR=/data
+    volumes:
+      # Persist custom agents across container restarts
+      - custom_agents_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  custom_agents_data:
+    driver: local

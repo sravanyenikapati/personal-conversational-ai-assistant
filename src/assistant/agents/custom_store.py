@@ -23,11 +23,14 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import os
+
 from assistant.logger import get_logger
 
 log = get_logger(__name__)
 
-_DEFAULT_DATA_DIR = Path.home() / ".personal_ai"
+# Allow CUSTOM_AGENTS_DIR env var so Docker/Railway can mount a persistent volume
+_DEFAULT_DATA_DIR = Path(os.environ.get("CUSTOM_AGENTS_DIR", "")) or (Path.home() / ".personal_ai")
 _DEFAULT_FILE = _DEFAULT_DATA_DIR / "custom_agents.json"
 
 # ID prefix that makes custom agents easy to distinguish from built-ins
