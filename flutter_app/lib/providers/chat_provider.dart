@@ -53,6 +53,9 @@ class ChatProvider extends ChangeNotifier {
   bool _ttsEnabled = true;
   bool get ttsEnabled => _ttsEnabled;
 
+  // true when the last message was sent via voice mic
+  bool _lastInputWasVoice = false;
+
   // -- Init ------------------------------------------------------------------
 
   Future<void> _loadAgents() async {
@@ -107,9 +110,10 @@ class ChatProvider extends ChangeNotifier {
 
   // -- Send message ----------------------------------------------------------
 
-  Future<void> sendMessage(String text) async {
+  Future<void> sendMessage(String text, {bool fromVoice = false}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _isResponding) return;
+    _lastInputWasVoice = fromVoice;
 
     await _tts.stop();
 
@@ -152,7 +156,7 @@ class ChatProvider extends ChangeNotifier {
             assistantMsg.text += chunk;
             sentenceBuf.write(chunk);
 
-            if (_ttsEnabled) {
+            if (_ttsEnabled && _lastInputWasVoice) {
               final pending = sentenceBuf.toString();
               final match = RegExp(r'(?<=[.!?])\s').firstMatch(pending);
               if (match != null) {
@@ -165,7 +169,7 @@ class ChatProvider extends ChangeNotifier {
             notifyListeners();
 
           case 'done':
-            if (_ttsEnabled && sentenceBuf.isNotEmpty) {
+            if (_ttsEnabled && _lastInputWasVoice && sentenceBuf.isNotEmpty) {
               final remainder = sentenceBuf.toString().trim();
               if (remainder.isNotEmpty) unawaited(_tts.speak(remainder));
             }
@@ -209,7 +213,7 @@ class ChatProvider extends ChangeNotifier {
         if (result.finalResult) {
           _stopListening();
           if (_liveTranscript.isNotEmpty) {
-            sendMessage(_liveTranscript);
+            sendMessage(_liveTranscript, fromVoice: true);
             _liveTranscript = '';
           }
         }
