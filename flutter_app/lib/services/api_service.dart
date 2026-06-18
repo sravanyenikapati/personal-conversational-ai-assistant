@@ -23,14 +23,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent.dart';
 
 class ApiService {
-  /// Production URL injected at build time via --dart-define=API_URL=https://...
-  /// Falls back to localhost (dev) if not set.
+  /// Production Railway backend URL — used as default on real devices.
+  static const String _productionUrl =
+      'https://api-backend-production-6c38.up.railway.app';
+
+  /// URL injected at build time via --dart-define=API_URL=https://...
+  /// If not set, real devices use Railway; web dev uses localhost.
   static const String _compiledUrl =
       String.fromEnvironment('API_URL', defaultValue: '');
 
   static final String _defaultBaseUrl = _compiledUrl.isNotEmpty
       ? _compiledUrl
-      : (kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000');
+      : (kIsWeb ? 'http://localhost:8000' : _productionUrl);
 
   static const String _prefKey = 'backend_base_url';
 

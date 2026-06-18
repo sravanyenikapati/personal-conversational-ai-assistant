@@ -1,4 +1,4 @@
-/// Settings screen — backend URL configuration and preferences.
+/// Settings screen — backend URL and voice preferences.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -46,6 +46,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _confirmClearHistory() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AuroraColors.surface2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Clear history?', style: TextStyle(color: AuroraColors.textPrimary)),
+        content: const Text(
+          'This will delete all messages across all agents.\nThis cannot be undone.',
+          style: TextStyle(color: AuroraColors.textSecondary, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: AuroraColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear', style: TextStyle(color: AuroraColors.error, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await context.read<ChatProvider>().clearHistory();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('History cleared'),
+          backgroundColor: AuroraColors.surface2,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChatProvider>();
@@ -67,31 +105,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
             controller: _urlCtrl,
             style: const TextStyle(color: AuroraColors.textPrimary, fontSize: 14),
             decoration: const InputDecoration(
-              labelText: 'Backend URL',
+              labelText: 'API URL',
               labelStyle: TextStyle(color: AuroraColors.textSecondary),
-              hintText: 'http://192.168.x.x:8000',
+              hintText: 'https://your-backend.up.railway.app',
             ),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Android emulator → http://10.0.2.2:8000\n'
-            'Physical device → your computer\'s local IP, e.g. http://192.168.1.42:8000\n'
-            'iOS simulator → http://localhost:8000',
+            'Leave as-is to use the production backend.\n'
+            'Change only if running a local dev server.',
             style: TextStyle(color: AuroraColors.textSecondary, fontSize: 12, height: 1.6),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: _saving ? null : _save,
             child: _saving
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AuroraColors.background))
-                : const Text('Save & Test Connection'),
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AuroraColors.background),
+                  )
+                : const Text('Connect'),
           ),
           const SizedBox(height: 32),
           _SectionHeader('Voice'),
           const SizedBox(height: 12),
           _ToggleTile(
             label: 'Text-to-speech',
-            subtitle: 'Read AI responses aloud',
+            subtitle: 'Read AI responses aloud (voice input only)',
             value: provider.ttsEnabled,
             onChanged: (_) => provider.toggleTts(),
           ),
@@ -104,21 +145,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               borderRadius: BorderRadius.circular(12),
               side: const BorderSide(color: AuroraColors.border),
             ),
-            leading: const Icon(Icons.delete_outline_rounded, color: AuroraColors.error),
+            leading: const Icon(Icons.delete_outline_rounded, color: AuroraColors.error, size: 20),
             title: const Text('Clear all history', style: TextStyle(color: AuroraColors.textPrimary)),
-            subtitle: const Text('Removes messages for all agents', style: TextStyle(color: AuroraColors.textSecondary, fontSize: 12)),
-            onTap: () async {
-              await provider.clearHistory();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('History cleared'),
-                  backgroundColor: AuroraColors.surface2,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              );
-            },
+            subtitle: const Text(
+              'Removes messages for all agents',
+              style: TextStyle(color: AuroraColors.textSecondary, fontSize: 12),
+            ),
+            onTap: _confirmClearHistory,
           ),
         ],
       ),

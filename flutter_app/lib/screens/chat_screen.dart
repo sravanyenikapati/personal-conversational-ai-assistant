@@ -1,8 +1,7 @@
 /// Main chat screen — the primary UI of the app.
 ///
 /// Layout (top to bottom):
-///   AppBar         agent name + online indicator + menu
-///   AgentSelector  horizontal chip row
+///   AppBar         "AI Assistant" brand + tappable agent selector → bottom sheet
 ///   MessageList    scrollable bubble list
 ///   Divider
 ///   InputRow       text field + send + mic button
@@ -14,9 +13,10 @@ import 'package:provider/provider.dart';
 
 import '../providers/chat_provider.dart';
 import '../theme/aurora_theme.dart';
-import '../widgets/agent_selector.dart';
+import '../widgets/agent_bottom_sheet.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/mic_button.dart';
+import 'profile_screen.dart';
 import 'settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -27,9 +27,9 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _controller   = TextEditingController();
-  final _scrollCtrl   = ScrollController();
-  final _focusNode    = FocusNode();
+  final _controller = TextEditingController();
+  final _scrollCtrl = ScrollController();
+  final _focusNode  = FocusNode();
 
   @override
   void dispose() {
@@ -60,6 +60,34 @@ class _ChatScreenState extends State<ChatScreen> {
     _focusNode.unfocus();
   }
 
+  Future<void> _confirmClearHistory(ChatProvider provider) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AuroraColors.surface2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Clear history?', style: TextStyle(color: AuroraColors.textPrimary)),
+        content: const Text(
+          'This will delete all messages across all agents.\nThis cannot be undone.',
+          style: TextStyle(color: AuroraColors.textSecondary, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: AuroraColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear', style: TextStyle(color: AuroraColors.error, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await provider.clearHistory();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChatProvider>();
@@ -69,8 +97,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final body = Column(
       children: [
-        const AgentSelector(),
-        const SizedBox(height: 4),
         const Divider(height: 1),
         Expanded(child: _buildMessageList(provider)),
         const Divider(height: 1),
@@ -80,7 +106,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       appBar: _buildAppBar(context, provider),
-      // On web: centre a max-720 px column so text never spans the full browser width
       body: kIsWeb
           ? Center(
               child: ConstrainedBox(
@@ -94,25 +119,69 @@ class _ChatScreenState extends State<ChatScreen> {
 
   PreferredSizeWidget _buildAppBar(BuildContext context, ChatProvider provider) {
     return AppBar(
-      title: Row(
-        children: [
-          Text(
-            '${provider.selectedAgent.emoji} ${provider.selectedAgent.name}',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 10),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 400),
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: provider.backendOnline ? AuroraColors.accent : AuroraColors.error,
+      toolbarHeight: 60,
+      title: GestureDetector(
+        onTap: () => AgentBottomSheet.show(context),
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'AI ASSISTANT',
+              style: TextStyle(
+                color: AuroraColors.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.2,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 3),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${provider.selectedAgent.emoji} ${provider.selectedAgent.name}',
+                  style: const TextStyle(
+                    color: AuroraColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: AuroraColors.textSecondary,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 400),
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: provider.backendOnline
+                        ? AuroraColors.accent
+                        : AuroraColors.error,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
       actions: [
+        // Profile
+        IconButton(
+          icon: const Icon(Icons.person_outline_rounded, color: AuroraColors.textSecondary),
+          tooltip: 'Profile',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ProfileScreen()),
+          ),
+        ),
+        // TTS toggle
         IconButton(
           icon: Icon(
             provider.ttsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
@@ -121,13 +190,14 @@ class _ChatScreenState extends State<ChatScreen> {
           tooltip: provider.ttsEnabled ? 'Mute voice' : 'Unmute voice',
           onPressed: provider.toggleTts,
         ),
+        // Overflow menu
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert_rounded, color: AuroraColors.textSecondary),
           color: AuroraColors.surface2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           onSelected: (value) async {
             if (value == 'clear') {
-              await provider.clearHistory();
+              await _confirmClearHistory(provider);
             } else if (value == 'settings') {
               if (!context.mounted) return;
               Navigator.push(
@@ -161,7 +231,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageList(ChatProvider provider) {
     if (provider.messages.isEmpty) {
-      return _EmptyState(agentName: provider.selectedAgent.name, emoji: provider.selectedAgent.emoji);
+      return _EmptyState(
+        agentName: provider.selectedAgent.name,
+        emoji: provider.selectedAgent.emoji,
+      );
     }
 
     return ListView.builder(
@@ -175,8 +248,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildInputRow(BuildContext context, ChatProvider provider) {
     final isListening = provider.listeningState == ListeningState.listening;
 
-    // On web, Enter sends; Shift+Enter inserts a newline.
-    // On mobile, the soft keyboard send button sends.
     final textField = TextField(
       controller: _controller,
       focusNode: _focusNode,
@@ -209,7 +280,6 @@ class _ChatScreenState extends State<ChatScreen> {
       onSubmitted: (_) => _send(provider),
     );
 
-    // Intercept Enter key on web to send; Shift+Enter passes through.
     final wrappedField = kIsWeb
         ? KeyboardListener(
             focusNode: FocusNode(),
@@ -226,12 +296,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          8,
-          16,
-          kIsWeb ? 16 : 12, // extra bottom padding on web (no home bar)
-        ),
+        padding: EdgeInsets.fromLTRB(16, 8, 16, kIsWeb ? 16 : 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -250,7 +315,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            // Hide mic on web — speech API requires native platform
             if (!kIsWeb) const MicButton(),
           ],
         ),
@@ -258,6 +322,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.agentName, required this.emoji});
@@ -274,12 +340,39 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Chat with $agentName',
-            style: const TextStyle(color: AuroraColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              color: AuroraColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 8),
           const Text(
             'Type a message or tap the mic to speak',
             style: TextStyle(color: AuroraColors.textSecondary, fontSize: 14),
+          ),
+          const SizedBox(height: 20),
+          GestureDetector(
+            onTap: () => AgentBottomSheet.show(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: AuroraColors.surface2,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AuroraColors.border),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.swap_horiz_rounded, color: AuroraColors.textSecondary, size: 16),
+                  SizedBox(width: 6),
+                  Text(
+                    'Switch assistant',
+                    style: TextStyle(color: AuroraColors.textSecondary, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

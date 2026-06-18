@@ -57,14 +57,14 @@ class _MicButtonState extends State<MicButton> with TickerProviderStateMixin {
         }
       },
       child: SizedBox(
-        width: 72,
-        height: 72,
+        width: 48,
+        height: 48,
         child: Stack(
           alignment: Alignment.center,
           children: [
             if (state == ListeningState.listening) ...[
-              _PulseRing(controller: _pulseCtrl, radius: 36, opacity: 0.25),
-              _PulseRing(controller: _pulseCtrl, radius: 44, opacity: 0.12, delay: 0.3),
+              _PulseRing(controller: _pulseCtrl, radius: 24, opacity: 0.25),
+              _PulseRing(controller: _pulseCtrl, radius: 30, opacity: 0.12, delay: 0.3),
             ],
             if (state == ListeningState.processing)
               RotationTransition(
@@ -92,8 +92,8 @@ class _ButtonCore extends StatelessWidget {
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      width: 56,
-      height: 56,
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: isActive ? AuroraColors.accent : Colors.transparent,
